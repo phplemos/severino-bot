@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String    @id // Discord User ID
+  coins       Int       @default(0)
+  xp          Int       @default(0)
+  level       Int       @default(1)
+  lastDailyAt DateTime?
+  warnings    Warning[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Warning {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  reason    String
+  moderator String   // Moderator ID
+  createdAt DateTime @default(now())
+}
+
+model HubChannel {
+  id           String @id // Discord Channel ID
+  guildId      String
+  templateName String @default("🏠 {user}'s Room")
+}
+
+model GuildConfig {
+  guildId          String  @id // Discord Guild ID
+  prefix           String  @default("!")
+  rankingChannelId String?
+  rankingMessageId String?
+}

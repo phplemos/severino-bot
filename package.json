@@ -1,0 +1,38 @@
+{
+  "name": "severino-discord-bot",
+  "version": "1.0.0",
+  "description": "Discord management bot for phplemos server",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "clear-cmds": "tsx src/lib/clear-commands.ts",
+    "postinstall": "prisma generate"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "sapphire",
+    "prisma"
+  ],
+  "author": "phplemos",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "@sapphire/framework": "^5.x.x",
+    "@sapphire/plugin-editable-commands": "^3.x.x",
+    "@sapphire/plugin-logger": "^3.x.x",
+    "discord.js": "^14.x.x",
+    "dotenv": "^16.x.x",
+    "prisma": "^5.22.0",
+    "zod": "^3.x.x"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x.x",
+    "tslib": "^2.x.x",
+    "tsx": "^4.21.0",
+    "typescript": "^5.x.x"
+  }
+}
