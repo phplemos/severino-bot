@@ -8,14 +8,34 @@ datasource db {
 }
 
 model User {
-  id          String    @id // Discord User ID
-  coins       Int       @default(0)
-  xp          Int       @default(0)
-  level       Int       @default(1)
-  lastDailyAt DateTime?
-  warnings    Warning[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id               String    @id // Discord User ID
+  username         String?
+  displayName      String?
+  avatar           String?
+  isBot            Boolean   @default(false)
+
+  // Server & Account Dates (Retroactive)
+  joinedAt         DateTime? // Server join timestamp
+  accountCreatedAt DateTime? // Discord account creation timestamp
+  premiumSince     DateTime? // Server boost start date
+  roles            String[]  @default([])
+  isInServer       Boolean   @default(true)
+
+  // Voice & Activity Tracking (Real-time accumulated)
+  totalVoiceSeconds Int       @default(0)
+  voiceJoinedAt    DateTime? // Session start time if currently in voice
+  lastActiveAt     DateTime?
+  activeDaysCount  Int       @default(0)
+  lastActiveDayStr String?   // YYYY-MM-DD to track distinct active days
+
+  // Existing Economy & Moderation fields
+  coins            Int       @default(0)
+  xp               Int       @default(0)
+  level            Int       @default(1)
+  lastDailyAt      DateTime?
+  warnings         Warning[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 model Warning {

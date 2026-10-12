@@ -1,7 +1,7 @@
 import { Listener } from '@sapphire/framework';
 import { VoiceState, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { prisma } from '../lib/prisma.js';
-import { checkAndClaimDaily } from '../lib/user.js';
+import { checkAndClaimDaily, recordVoiceJoin, recordVoiceLeave, recordUserActivity } from '../lib/user.js';
 import { updateGuildRanking } from '../lib/ranking.js';
 
 export class VoiceStateUpdateListener extends Listener {
@@ -16,6 +16,18 @@ export class VoiceStateUpdateListener extends Listener {
 		const { guild } = newState;
 		const member = newState.member;
 		if (!member || member.user.bot) return;
+
+		const joinedChannel = !oldState.channelId && !!newState.channelId;
+		const leftChannel = !!oldState.channelId && !newState.channelId;
+		const switchedChannel = !!oldState.channelId && !!newState.channelId && oldState.channelId !== newState.channelId;
+
+		// Voice Time Tracking
+		if (joinedChannel) {
+			await recordVoiceJoin(member.id);
+			await recordUserActivity(member.id);
+		} else if (leftChannel) {
+			await recordVoiceLeave(member.id);
+		}
 
 		// 1. Auto-claim daily on connect (joining any voice channel)
 		if (newState.channelId && oldState.channelId !== newState.channelId) {
