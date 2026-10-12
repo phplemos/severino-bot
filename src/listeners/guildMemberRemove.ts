@@ -1,24 +1,15 @@
-import { Listener } from '@sapphire/framework';
-import { GuildMember, PartialGuildMember } from 'discord.js';
-import { prisma } from '../lib/prisma.js';
+import { Events, Listener } from '@sapphire/framework';
+import type { GuildMember, PartialGuildMember } from 'discord.js';
+import { config } from '../config.js';
+import { markMemberLeft } from '../lib/members.js';
 
-export class GuildMemberRemoveListener extends Listener {
-	public constructor(context: Listener.Context, options: Listener.Options) {
-		super(context, {
-			...options,
-			event: 'guildMemberRemove'
-		});
+export class GuildMemberRemoveListener extends Listener<typeof Events.GuildMemberRemove> {
+	public constructor(context: Listener.LoaderContext, options: Listener.Options) {
+		super(context, { ...options, event: Events.GuildMemberRemove });
 	}
 
 	public async run(member: GuildMember | PartialGuildMember) {
-		try {
-			await prisma.user.update({
-				where: { id: member.id },
-				data: { isInServer: false }
-			});
-			this.container.logger.info(`Marked member as left server: ${member.user.tag}`);
-		} catch (error) {
-			this.container.logger.error(`Failed to update leave status for member ${member.id}:`, error);
-		}
+		if (member.guild.id !== config.GUILD_ID) return;
+		await markMemberLeft(member);
 	}
 }

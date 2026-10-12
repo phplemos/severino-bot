@@ -7,35 +7,88 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Membro do servidor, identificado pelo ID do Discord, com os totais de atividade e economia.
+/// Dias são guardados como "YYYY-MM-DD" no horário de Brasília.
 model User {
-  id               String    @id // Discord User ID
+  id               String    @id
   username         String?
   displayName      String?
   avatar           String?
   isBot            Boolean   @default(false)
+  isInServer       Boolean   @default(false)
+  joinedAt         DateTime?
+  accountCreatedAt DateTime?
+  premiumSince     DateTime?
+  roles            String[]  @default([]) // nomes dos cargos, para leitura humana
+  roleIds          String[]  @default([]) // IDs dos cargos, estáveis a renomeações
 
-  // Server & Account Dates (Retroactive)
-  joinedAt         DateTime? // Server join timestamp
-  accountCreatedAt DateTime? // Discord account creation timestamp
-  premiumSince     DateTime? // Server boost start date
-  roles            String[]  @default([])
-  isInServer       Boolean   @default(true)
-
-  // Voice & Activity Tracking (Real-time accumulated)
+  xp                Int       @default(0) // pontos de atividade: mensagens + voz
   totalVoiceSeconds Int       @default(0)
-  voiceJoinedAt    DateTime? // Session start time if currently in voice
-  lastActiveAt     DateTime?
-  activeDaysCount  Int       @default(0)
-  lastActiveDayStr String?   // YYYY-MM-DD to track distinct active days
+  lastMessageXpAt   DateTime?
+  activeDaysCount   Int       @default(0)
+  lastActiveDay     String?
+  lastActiveAt      DateTime?
 
-  // Existing Economy & Moderation fields
-  coins            Int       @default(0)
-  xp               Int       @default(0)
-  level            Int       @default(1)
-  lastDailyAt      DateTime?
+  coins        Int       @default(0)
+  lastDailyDay String?
+  lastDailyAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   warnings         Warning[]
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  activityDays     ActivityDay[]
+  coinTransactions CoinTransaction[]
+}
+
+/// Atividade agregada por dia; é a base do ranking semanal.
+model ActivityDay {
+  userId       String
+  day          String
+  xp           Int    @default(0)
+  voiceSeconds Int    @default(0)
+  user         User   @relation(fields: [userId], references: [id])
+
+  @@id([userId, day])
+  @@index([day])
+}
+
+/// Livro-caixa de moedas: toda variação de saldo gera uma linha.
+model CoinTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  amount    Int
+  reason    String
+  refDay    String?
+  note      String?
+  actorId   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+/// Salas de voz criadas pelo bot. Só canais registrados aqui podem ser apagados automaticamente.
+model TempChannel {
+  id        String   @id
+  guildId   String
+  ownerId   String
+  hubId     String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
+/// Registro das ações administrativas feitas pelo bot a pedido de alguém.
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actorId   String
+  action    String
+  targetId  String?
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Warning {
@@ -43,19 +96,18 @@ model Warning {
   userId    String
   user      User     @relation(fields: [userId], references: [id])
   reason    String
-  moderator String   // Moderator ID
+  moderator String
   createdAt DateTime @default(now())
 }
 
 model HubChannel {
-  id           String @id // Discord Channel ID
+  id           String @id
   guildId      String
-  templateName String @default("🏠 {user}'s Room")
+  templateName String @default("Quarto de {user}")
 }
 
 model GuildConfig {
-  guildId          String  @id // Discord Guild ID
-  prefix           String  @default("!")
+  guildId          String  @id
   rankingChannelId String?
   rankingMessageId String?
 }

@@ -1,26 +1,19 @@
-import { Listener } from '@sapphire/framework';
-import { Message } from 'discord.js';
-import { addXp, checkAndClaimDaily, recordUserActivity } from '../lib/user.js';
+import { Events, Listener } from '@sapphire/framework';
+import type { Message } from 'discord.js';
+import { config } from '../config.js';
+import { grantMessageXp, registerActivity } from '../lib/activity.js';
+import { metrics } from '../lib/metrics.js';
 
-export class MessageCreateListener extends Listener {
-	public constructor(context: Listener.Context, options: Listener.Options) {
-		super(context, {
-			...options,
-			event: 'messageCreate'
-		});
+export class MessageCreateListener extends Listener<typeof Events.MessageCreate> {
+	public constructor(context: Listener.LoaderContext, options: Listener.Options) {
+		super(context, { ...options, event: Events.MessageCreate });
 	}
 
 	public async run(message: Message) {
-		if (message.author.bot || !message.guild) return;
+		if (!message.inGuild() || message.guildId !== config.GUILD_ID) return;
+		if (message.author.bot || message.system || message.webhookId) return;
 
-		// 1. Auto-claim daily on first activity of the day
-		await checkAndClaimDaily(message.author.id);
-
-		// 2. Record active day & timestamp
-		await recordUserActivity(message.author.id);
-
-		// 3. Add random XP between 5 and 15
-		const xpToAdd = Math.floor(Math.random() * 11) + 5;
-		await addXp(message.author.id, xpToAdd);
+		if ((await registerActivity(message.author.id)) > 0) metrics.dailyClaims++;
+		if ((await grantMessageXp(message.author.id)) > 0) metrics.messageXpGrants++;
 	}
 }

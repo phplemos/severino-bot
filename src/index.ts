@@ -1,55 +1,65 @@
 import './lib/setup.js';
-import { SapphireClient, ApplicationCommandRegistries, RegisterBehavior } from '@sapphire/framework';
-import { GatewayIntentBits } from 'discord.js';
+import { ApplicationCommandRegistries, LogLevel, RegisterBehavior, SapphireClient } from '@sapphire/framework';
+import { GatewayIntentBits, Status } from 'discord.js';
+import { config } from './config.js';
+import { startHealthServer } from './lib/health.js';
+import { stopJobs } from './lib/jobs.js';
+import { metrics } from './lib/metrics.js';
+import { prisma } from './lib/prisma.js';
 
-ApplicationCommandRegistries.setDefaultBehaviorWhenNotIdentical(RegisterBehavior.Overwrite);
-if (process.env.GUILD_ID) {
-	ApplicationCommandRegistries.setDefaultGuildIds([process.env.GUILD_ID]);
-}
+// Os comandos são registrados só no SDJ; o BulkOverwrite também remove comandos antigos que deixaram de existir
+ApplicationCommandRegistries.setDefaultBehaviorWhenNotIdentical(RegisterBehavior.BulkOverwrite);
+ApplicationCommandRegistries.setDefaultGuildIds([config.GUILD_ID]);
 
 const client = new SapphireClient({
-	defaultPrefix: '!',
-	caseInsensitiveCommands: true,
-	logger: {
-		level: 30 // info
-	},
-	intents: [
-		GatewayIntentBits.DirectMessages,
-		GatewayIntentBits.GuildMessages,
-		GatewayIntentBits.Guilds,
-		GatewayIntentBits.GuildMembers,
-		GatewayIntentBits.MessageContent,
-		GatewayIntentBits.GuildVoiceStates
-	],
-	loadMessageCommandListeners: true,
+	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildVoiceStates],
+	logger: { level: LogLevel.Info },
+	loadMessageCommandListeners: false,
 	baseUserDirectory: new URL('.', import.meta.url).pathname
 });
 
-const main = async () => {
-	try {
-		client.logger.info('Logging in...');
-		await client.login(process.env.DISCORD_TOKEN);
-		client.logger.info('Logged in successfully!');
+const health = startHealthServer(config.HEALTH_PORT, () => client.ws.status === Status.Ready);
 
-		if (process.env.HUB_CHANNEL_ID && process.env.GUILD_ID) {
-			const { prisma } = await import('./lib/prisma.js');
-			await prisma.hubChannel.upsert({
-				where: { id: process.env.HUB_CHANNEL_ID },
-				update: {},
-				create: {
-					id: process.env.HUB_CHANNEL_ID,
-					guildId: process.env.GUILD_ID,
-					templateName: "🏠 {user}'s Room"
-				}
-			});
-			client.logger.info(`Auto-registered Hub Channel from .env: ${process.env.HUB_CHANNEL_ID}`);
-		}
-	} catch (error) {
-		client.logger.fatal(error);
-		client.destroy();
+// Watchdog: sem gateway pronto por 5 minutos, o processo sai e o Docker o reinicia
+const WATCHDOG_LIMIT_MS = 5 * 60_000;
+let lastReadyAt = Date.now();
+const watchdog = setInterval(() => {
+	const ready = client.ws.status === Status.Ready;
+	metrics.discordReady = ready ? 1 : 0;
+	metrics.discordPingMs = client.ws.ping;
+	if (ready) {
+		lastReadyAt = Date.now();
+		return;
+	}
+	if (Date.now() - lastReadyAt > WATCHDOG_LIMIT_MS) {
+		client.logger.fatal('Sem conexão com o Discord há mais de 5 minutos; saindo para o Docker reiniciar.');
 		process.exit(1);
 	}
-};
+}, 30_000);
 
+let shuttingDown = false;
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+	if (shuttingDown) return;
+	shuttingDown = true;
+	client.logger.info(`${signal} recebido; encerrando.`);
+	setTimeout(() => process.exit(1), 10_000).unref();
 
-main();
+	clearInterval(watchdog);
+	stopJobs();
+	health.close();
+	await client.destroy().catch(() => undefined);
+	await prisma.$disconnect().catch(() => undefined);
+	process.exit(0);
+}
+process.once('SIGTERM', (signal) => void shutdown(signal));
+process.once('SIGINT', (signal) => void shutdown(signal));
+process.on('unhandledRejection', (reason) => client.logger.error('Promise rejeitada sem tratamento:', reason));
+
+try {
+	client.logger.info('Conectando ao Discord...');
+	await client.login(config.DISCORD_TOKEN);
+} catch (error) {
+	client.logger.fatal('Falha no login do Discord:', error);
+	await prisma.$disconnect().catch(() => undefined);
+	process.exit(1);
+}

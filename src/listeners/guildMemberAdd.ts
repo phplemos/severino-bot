@@ -1,21 +1,15 @@
-import { Listener } from '@sapphire/framework';
-import { GuildMember } from 'discord.js';
-import { upsertUserFromMember } from '../lib/user.js';
+import { Events, Listener } from '@sapphire/framework';
+import type { GuildMember } from 'discord.js';
+import { config } from '../config.js';
+import { upsertMember } from '../lib/members.js';
 
-export class GuildMemberAddListener extends Listener {
-	public constructor(context: Listener.Context, options: Listener.Options) {
-		super(context, {
-			...options,
-			event: 'guildMemberAdd'
-		});
+export class GuildMemberAddListener extends Listener<typeof Events.GuildMemberAdd> {
+	public constructor(context: Listener.LoaderContext, options: Listener.Options) {
+		super(context, { ...options, event: Events.GuildMemberAdd });
 	}
 
 	public async run(member: GuildMember) {
-		try {
-			await upsertUserFromMember(member);
-			this.container.logger.info(`Synced new member: ${member.user.tag}`);
-		} catch (error) {
-			this.container.logger.error(`Failed to sync joining member ${member.user.tag}:`, error);
-		}
+		if (member.guild.id !== config.GUILD_ID) return;
+		await upsertMember(member);
 	}
 }

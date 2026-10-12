@@ -1,37 +1,30 @@
-import { REST, Routes } from 'discord.js';
+// Apaga todos os slash commands registrados (globais e do servidor). O bot registra de novo ao subir.
+// Uso: npm run clear-cmds (lê DISCORD_TOKEN, CLIENT_ID e GUILD_ID do .env)
 import 'dotenv/config';
+import { REST, Routes } from 'discord.js';
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
 
 if (!token || !clientId) {
-	console.error('Missing DISCORD_TOKEN or CLIENT_ID in .env');
+	console.error('Faltam DISCORD_TOKEN ou CLIENT_ID no .env.');
 	process.exit(1);
 }
 
 const rest = new REST({ version: '10' }).setToken(token);
 
-async function clearCommands() {
-	try {
-		console.log('🧹 Starting to clear all application commands...');
+try {
+	await rest.put(Routes.applicationCommands(clientId), { body: [] });
+	console.log('Comandos globais apagados.');
 
-		// 1. Clear Global Commands
-		console.log('Clearing global commands...');
-		await rest.put(Routes.applicationCommands(clientId!), { body: [] });
-		console.log('Successfully cleared global commands.');
-
-		// 2. Clear Guild Commands (if GUILD_ID is provided)
-		if (guildId) {
-			console.log(`Clearing guild commands for ID: ${guildId}...`);
-			await rest.put(Routes.applicationGuildCommands(clientId!, guildId), { body: [] });
-			console.log('Successfully cleared guild commands.');
-		}
-
-		console.log('✅ Done! All commands have been wiped. Restart the bot to re-register the current ones.');
-	} catch (error) {
-		console.error('❌ Error clearing commands:', error);
+	if (guildId) {
+		await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
+		console.log(`Comandos do servidor ${guildId} apagados.`);
 	}
-}
 
-clearCommands();
+	console.log('Pronto. Reinicie o bot para registrar os comandos atuais.');
+} catch (error) {
+	console.error('Falha ao apagar os comandos:', error);
+	process.exitCode = 1;
+}

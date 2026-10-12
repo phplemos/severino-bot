@@ -1,0 +1,14 @@
+# Segredos e dados locais nunca entram no contexto de build
+.env
+.env.*
+*.db
+*.db-journal
+
+node_modules
+dist
+coverage
+.git
+.github
+docs
+test
+*.log
