@@ -442,12 +442,12 @@ connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão ence
 /musica fila
 ```
 
-- [ ] Opções do comando: `preconditions: ['GuildOnly']` e `cooldownDelay: 2_000`. O listener de negação já responde ao cooldown. Não usar `setDefaultMemberPermissions`: todo mundo vê o comando e a checagem de cargo responde quem não pode.
-- [ ] **Regras para todas as respostas:**
+- [x] Opções do comando: `preconditions: ['GuildOnly']` e `cooldownDelay: 2_000`. O listener de negação já responde ao cooldown. Não usar `setDefaultMemberPermissions`: todo mundo vê o comando e a checagem de cargo responde quem não pode.
+- [x] **Regras para todas as respostas:**
   - `allowedMentions: { parse: [] }`, e texto digitado e títulos passam por `escapeMarkdown`.
   - Recusas antes do `deferReply` são efêmeras, como no `/admin`.
-- [ ] **Acesso:** `tocar`, `pular` e `parar` começam por `interaction.inCachedGuild()` e `canUseMusic`. Quem não passa recebe "⛔ A música é para quem tem algum cargo no servidor." O `fila` é livre.
-- [ ] **`tocar`**, depois do acesso, nesta ordem:
+- [x] **Acesso:** `tocar`, `pular` e `parar` começam por `interaction.inCachedGuild()` e `canUseMusic`. Quem não passa recebe "⛔ A música é para quem tem algum cargo no servidor." O `fila` é livre.
+- [x] **`tocar`**, depois do acesso, nesta ordem:
   1. Canal de voz de quem pediu:
      - nenhum: "Entre num canal de voz primeiro.";
      - palco: "Não toco em canal de palco.";
@@ -482,11 +482,11 @@ connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão ence
       - `null`: "A fila está cheia (50 músicas).";
       - `0`: "▶️ Tocando agora: **título** · 3:45";
       - `n`: "➕ Na fila (posição n): **título** · 3:45".
-- [ ] **`pular` e `parar`:** depois do acesso, precisam de sessão e de quem pediu estar no mesmo canal do bot. Fora do canal, a resposta é "Entre em <#id> para controlar a música.".
+- [x] **`pular` e `parar`:** depois do acesso, precisam de sessão e de quem pediu estar no mesmo canal do bot. Fora do canal, a resposta é "Entre em <#id> para controlar a música.".
   - `pular`: "⏭️ Pulei **título**." ou "Não há nada tocando.".
   - `parar`: `destroy('parado por <usuário>')` e "⏹️ Parei e saí do canal.".
-- [ ] **`fila`:** resposta efêmera com a faixa atual, as próximas 10 com posição, duração e quem pediu, e o total. Usar um embed no estilo do `/perfil`. Sem sessão ou sem faixa atual: "Nada tocando.".
-- [ ] Erros dentro dos subcomandos podem lançar: o `chatInputCommandError` já responde e conta em `commandErrors`.
+- [x] **`fila`:** resposta efêmera com a faixa atual, as próximas 10 com posição, duração e quem pediu, e o total. Usar um embed no estilo do `/perfil`. Sem sessão ou sem faixa atual: "Nada tocando.".
+- [x] Erros dentro dos subcomandos podem lançar: o `chatInputCommandError` já responde e conta em `commandErrors`.
 
 ---
 
@@ -639,5 +639,6 @@ Vídeos do teste: `VIDEO` = `dQw4w9WgXcQ` (3:33); `LONGO` = `I03Hs6dwj7E`, 1767 
 - **Tarefa 4, log da resolução:** a resolução também registra `[música] falha (<tipo>) ao resolver <alvo>: <última linha>`, porque a resposta de `failure` diz que o erro ficou registrado.
 - **Tarefa 4, bancada:** depois de umas 60 extrações em uma hora no IP de casa, o YouTube respondeu "Sign in to confirm you're not a bot" (classificado como `bot-check`). Por isso os caminhos do `kill()` foram testados com um yt-dlp falso, sem o YouTube. Um pico de 415 MiB nessa bancada foi cache de arquivos que o container recarregou (71 MiB de `file`) e não muda a conta dos 640m.
 - **Tarefa 5, sessão:** duas adições pequenas. O `startSession` já avalia o timer de "sozinho", para o caso de quem pediu sair enquanto o bot entrava. E os humanos do canal são contados pelo cache de estados de voz, como no `voice.ts`: quem não está no cache conta como humano, e o bot fica. O fluxo foi testado com o `AudioPlayer` real tocando para uma conexão falsa e com o yt-dlp falso, sem Discord e sem YouTube.
+- **Tarefa 6, trava:** só o `tocar` usa o `withSessionLock`, como no plano. O `pular` e o `parar` respondem sem esperar a trava (o Discord só espera 3 s, e um `startSession` leva até 20 s); isso é seguro porque o `tocar` não tem `await` entre achar a sessão e pôr a faixa na fila. Como proteção extra, o `enqueue` de uma sessão já encerrada lança erro em vez de abrir processos que ninguém mataria.
 - **Tarefa 1, Passo 3:** o container de teste rodou em segundo plano (`--entrypoint sleep … infinity`), com os comandos via `docker exec`, e com `--init`, como o `init: true` do compose. O `time ( … )` virou `time sh -c "…"`, porque o `time` do busybox não mede subshell.
 - **Tarefa 1, zipimport:** testado com um `Dockerfile` à parte, fora do worktree (`yt-dlp` da mesma release, SHA-256 `1fa6733c…d4d6` do `SHA2-256SUMS`, mais `apk add python3`). O primeiro 3c dele falhou com `HTTP Error 403: Forbidden`; as duas tentativas seguintes e o 3b repetido baixaram a faixa inteira, então o 403 foi passageiro.

@@ -136,6 +136,8 @@ export class MusicSession {
 
 	/** 0 = começou a tocar agora; n = posição na fila; null = fila cheia. */
 	public enqueue(track: Track): number | null {
+		// Numa sessão encerrada, a faixa abriria processos que ninguém mataria
+		if (this.destroyed) throw new Error('A sessão de música já foi encerrada.');
 		this.clearIdleTimer();
 		if (this.playing === null && this.queue.size === 0) {
 			this.queue.push(track);
