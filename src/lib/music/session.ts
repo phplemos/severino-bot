@@ -9,11 +9,13 @@ import {
 	entersState,
 	joinVoiceChannel,
 	type AudioPlayer,
-	type VoiceConnection
+	type VoiceConnection,
+	type VoiceConnectionState
 } from '@discordjs/voice';
 import { escapeMarkdown, type Guild, type GuildTextBasedChannel, type Message, type VoiceChannel, type VoiceState } from 'discord.js';
 import { metrics } from '../metrics.js';
 import { blockNotice, youtubeBlockedUntil } from './block.js';
+import { JoinTrace, withRetry } from './join.js';
 import { renderEnded, renderPlayer, type PlayerView } from './player.js';
 import { hasCachedAudio, openAudio, recordFailure, type AudioHandle } from './process.js';
 import { TrackQueue, type Track } from './queue.js';
@@ -22,6 +24,9 @@ import { failureMessage } from './ytdlp.js';
 export const IDLE_LEAVE_MS = 5 * 60_000;
 export const ALONE_LEAVE_MS = 2 * 60_000;
 const READY_TIMEOUT_MS = 20_000;
+// Uma entrada às vezes trava, e a seguinte, segundos depois, entra
+const JOIN_ATTEMPTS = 2;
+const JOIN_RETRY_MS = 2_000;
 const RECONNECT_TIMEOUT_MS = 5_000;
 // Os avisos repetem títulos de vídeo e apelidos, que podem trazer @everyone ou <@&cargo>
 const NO_MENTIONS = { parse: [] };
@@ -44,22 +49,9 @@ export function withSessionLock<T>(guildId: string, task: () => Promise<T>): Pro
 	return result;
 }
 
-/** Entra no canal; rejeita se a conexão não ficar pronta em 20 s. Só chamar dentro de withSessionLock. */
+/** Entra no canal; rejeita se a conexão não ficar pronta em duas tentativas de 20 s. Só chamar dentro de withSessionLock. */
 export async function startSession(channel: VoiceChannel, textChannel: GuildTextBasedChannel): Promise<MusicSession> {
-	const connection = joinVoiceChannel({
-		channelId: channel.id,
-		guildId: channel.guild.id,
-		adapterCreator: channel.guild.voiceAdapterCreator,
-		selfDeaf: true
-	});
-	try {
-		// Problemas de DAVE e de permissão aparecem aqui
-		await entersState(connection, VoiceConnectionStatus.Ready, READY_TIMEOUT_MS);
-	} catch (error) {
-		if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
-		throw error;
-	}
-
+	const connection = await withRetry(JOIN_ATTEMPTS, JOIN_RETRY_MS, (attempt) => joinChannel(channel, attempt));
 	const session = new MusicSession(channel, textChannel, connection);
 	sessions.set(session.guildId, session);
 	metrics.musicConnected = 1;
@@ -67,6 +59,33 @@ export async function startSession(channel: VoiceChannel, textChannel: GuildText
 	// Quem pediu pode ter saído enquanto o bot entrava
 	session.checkAlone();
 	return session;
+}
+
+/** Uma tentativa de entrar; se falhar, registra no log os estados por que a conexão passou e a desfaz. */
+async function joinChannel(channel: VoiceChannel, attempt: number): Promise<VoiceConnection> {
+	const connection = joinVoiceChannel({
+		channelId: channel.id,
+		guildId: channel.guild.id,
+		adapterCreator: channel.guild.voiceAdapterCreator,
+		selfDeaf: true
+	});
+	const trace = new JoinTrace();
+	trace.record(connection.state);
+	const onStateChange = (_: VoiceConnectionState, next: VoiceConnectionState) => trace.record(next);
+	connection.on('stateChange', onStateChange);
+	try {
+		// Problemas de DAVE e de permissão aparecem aqui
+		await entersState(connection, VoiceConnectionStatus.Ready, READY_TIMEOUT_MS);
+		return connection;
+	} catch (error) {
+		container.logger.warn(
+			`[música] Tentativa ${attempt} de ${JOIN_ATTEMPTS} de entrar em ${channel.name} (${channel.id}) falhou: ${String(error)}; estados: ${trace}`
+		);
+		if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
+		throw error;
+	} finally {
+		connection.off('stateChange', onStateChange);
+	}
 }
 
 /** Usado no desligamento: encerra as sessões e mata os processos de áudio. */
@@ -123,6 +142,8 @@ export class MusicSession {
 			}
 		});
 		connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão encerrada', '⚠️ A conexão com o canal de voz foi encerrada.'));
+		// Erros da rede de voz; sem ouvinte, o EventEmitter lançaria e derrubaria o bot. Depois de um erro, a conexão se refaz ou cai em Disconnected
+		connection.on('error', (error) => container.logger.error('[música] Erro na conexão de voz:', error));
 
 		this.player.on(AudioPlayerStatus.Idle, () => void this.onTrackEnd());
 		// O Idle vem em seguida e cuida do resto
