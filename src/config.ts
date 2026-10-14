@@ -12,7 +12,9 @@ const schema = z.object({
 	AUTO_SYNC_MEMBERS: z
 		.preprocess(emptyToUndefined, z.enum(['true', 'false']).default('true'))
 		.transform((value) => value === 'true'),
-	HEALTH_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(65_535).default(8080))
+	HEALTH_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(65_535).default(8080)),
+	// Fora do Docker valem o yt-dlp e o ffmpeg do PATH; a imagem define o caminho do seu yt-dlp
+	YTDLP_PATH: z.preprocess(emptyToUndefined, z.string().default('yt-dlp'))
 });
 
 const parsed = schema.safeParse(process.env);

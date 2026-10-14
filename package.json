@@ -27,6 +27,7 @@
   "author": "phplemos",
   "license": "ISC",
   "dependencies": {
+    "@discordjs/voice": "0.19.2",
     "@prisma/client": "5.22.0",
     "@sapphire/framework": "5.5.0",
     "@sapphire/plugin-logger": "3.0.7",

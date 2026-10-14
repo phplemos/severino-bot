@@ -148,12 +148,12 @@ rm /tmp/saida.ogg
 
 **Arquivos:** `package.json`, `package-lock.json`, `src/config.ts`, `.env.example`.
 
-- [ ] `npm install --save-exact @discordjs/voice@0.19.2`. O `package.json` fixa versões exatas.
-- [ ] Conferir que o lock registra o binário musl, que é o que o `npm ci` do Alpine instala: `grep -c 'davey-linux-x64-musl' package-lock.json` deve dar 1 ou mais.
-- [ ] `npm ls discord-api-types`: uma versão só. Duas versões costumam quebrar o tipo do `guild.voiceAdapterCreator`; se acontecer, `npm dedupe`.
-- [ ] Em `config.ts`, adicionar `YTDLP_PATH: z.preprocess(emptyToUndefined, z.string().default('yt-dlp'))`. Fora do Docker valem o `yt-dlp` e o `ffmpeg` do PATH; na imagem, o `ENV` da Tarefa 1.
-- [ ] No `.env.example` do bot, que é o de desenvolvimento: `YTDLP_PATH=""`, com o comentário de que vazio usa o `yt-dlp` do PATH e de que o Docker define o seu.
-- [ ] Reconstruir a imagem de teste e conferir o relatório da lib:
+- [x] `npm install --save-exact @discordjs/voice@0.19.2`. O `package.json` fixa versões exatas.
+- [x] Conferir que o lock registra o binário musl, que é o que o `npm ci` do Alpine instala: `grep -c 'davey-linux-x64-musl' package-lock.json` deve dar 1 ou mais.
+- [x] `npm ls discord-api-types`: uma versão só. Duas versões costumam quebrar o tipo do `guild.voiceAdapterCreator`; se acontecer, `npm dedupe`.
+- [x] Em `config.ts`, adicionar `YTDLP_PATH: z.preprocess(emptyToUndefined, z.string().default('yt-dlp'))`. Fora do Docker valem o `yt-dlp` e o `ffmpeg` do PATH; na imagem, o `ENV` da Tarefa 1.
+- [x] No `.env.example` do bot, que é o de desenvolvimento: `YTDLP_PATH=""`, com o comentário de que vazio usa o `yt-dlp` do PATH e de que o Docker define o seu.
+- [x] Reconstruir a imagem de teste e conferir o relatório da lib:
 
 ```bash
 docker build -t severino-bot:musica-teste severino-bot-musica
@@ -162,7 +162,7 @@ docker run --rm --entrypoint node severino-bot:musica-teste -e "console.log(requ
 
 Esperado: DAVE com `@snazzah/davey`, criptografia `aes-256-gcm` nativa e FFmpeg encontrado. A ausência de lib de Opus é esperada.
 
-- [ ] `npm run typecheck && npm test && npm audit --audit-level=high`
+- [x] `npm run typecheck && npm test && npm audit --audit-level=high`
 
 ---
 
