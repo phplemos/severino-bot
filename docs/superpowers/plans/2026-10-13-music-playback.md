@@ -547,13 +547,13 @@ connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão ence
 
 ### Tarefa 8: Documentação
 
-- [ ] **README do bot:**
+- [x] **README do bot:**
   - uma linha "Música" na tabela de regras: quem pode, faixas de até 30 minutos, até 50 na fila, saída automática;
   - os quatro subcomandos na tabela de comandos (`tocar`, `pular` e `parar` para quem tem cargo; `fila` para todos);
   - a seção "Música" em "Como roda no homelab", com o conteúdo de "Manutenção" deste plano: atualizar o yt-dlp e o ffmpeg e o que fazer quando o YouTube pede para confirmar que não é robô. É para lá que os dois alertas apontam;
   - em "Desenvolvimento": a música fora do Docker precisa de `yt-dlp` e `ffmpeg` no PATH, ou do `YTDLP_PATH` do `.env.example`. A tabela de variáveis não muda, porque ela é a do `.env` de produção.
-- [ ] **`CHANGELOG.md` do homelab:** uma entrada em `[Unreleased]` → `Added` com o `/musica`, os novos limites do container e os dois alertas.
-- [ ] **`SECURITY.md` do homelab:** registrar que o bot executa yt-dlp e ffmpeg, que só URLs do YouTube chegam ao yt-dlp e que as resoluções rodam uma por vez.
+- [x] **`CHANGELOG.md` do homelab:** uma entrada em `[Unreleased]` → `Added` com o `/musica`, os novos limites do container e os dois alertas.
+- [x] **`SECURITY.md` do homelab:** registrar que o bot executa yt-dlp e ffmpeg, que só URLs do YouTube chegam ao yt-dlp e que as resoluções rodam uma por vez.
 
 ---
 
