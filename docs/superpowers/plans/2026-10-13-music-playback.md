@@ -329,14 +329,14 @@ export interface AudioHandle {
 export function openAudio(url: string): AudioHandle;
 ```
 
-- [ ] **`resolveTrack`:**
+- [x] **`resolveTrack`:**
   - Passa por um `Limiter(1, 5)`. Espera cheia: devolve `busy` sem abrir processo.
   - Roda `config.YTDLP_PATH` com `resolveArgs`, mata o processo depois de `RESOLVE_TIMEOUT_MS` (contados do início do processo, não da espera) e aceita até 10 MB de stdout.
   - Saída 0: `parseResolved(JSON.parse(stdout))`.
   - Qualquer outra saída: `classifyFailure(stderr)`.
   - Erro de `spawn`, por exemplo `ENOENT` quando falta o yt-dlp: `failure`.
-- [ ] **`recordFailure`:** `bot-check` soma em `musicBotChecks`, `failure` soma em `musicFailures`, e `unavailable` e `age` não somam em nada. O comando e a sessão usam só esta função para contar.
-- [ ] **`openAudio`:** o núcleo é este:
+- [x] **`recordFailure`:** `bot-check` soma em `musicBotChecks`, `failure` soma em `musicFailures`, e `unavailable` e `age` não somam em nada. O comando e a sessão usam só esta função para contar.
+- [x] **`openAudio`:** o núcleo é este:
 
 ```ts
 const download = spawn(config.YTDLP_PATH, streamArgs(url), { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -348,13 +348,13 @@ download.stdout.pipe(buffer).pipe(encoder.stdin);
 encoder.stdin.on('error', () => undefined);
 ```
 
-- [ ] Guardar os últimos 4 KB do stderr de cada processo, para classificar a falha e para o log.
-- [ ] **`finished`:** resolve quando os dois processos fecharam.
+- [x] Guardar os últimos 4 KB do stderr de cada processo, para classificar a falha e para o log.
+- [x] **`finished`:** resolve quando os dois processos fecharam.
   - Devolve `classifyFailure(stderr)` se o yt-dlp saiu com erro.
   - Devolve `failure` se só o ffmpeg saiu com erro, ou se o `spawn` de qualquer um dos dois falhou.
   - Devolve `null` se os dois saíram com 0 ou foram mortos por nós.
   - Registrar no log `[música] falha (<tipo>) em <id>: <última linha do stderr do processo que falhou>`.
-- [ ] **`kill()`:** idempotente. Marca como "morto por nós" só o processo que ainda está vivo (`exitCode === null && signalCode === null`). Um processo que já saiu sozinho guarda o próprio resultado, para que uma falha que chegou antes do `Idle` não seja apagada. SIGTERM nos vivos e, se em 2 s ainda estiverem vivos, SIGKILL. O `init: true` do compose recolhe os processos zumbis.
+- [x] **`kill()`:** idempotente. Marca como "morto por nós" só o processo que ainda está vivo (`exitCode === null && signalCode === null`). Um processo que já saiu sozinho guarda o próprio resultado, para que uma falha que chegou antes do `Idle` não seja apagada. SIGTERM nos vivos e, se em 2 s ainda estiverem vivos, SIGKILL. O `init: true` do compose recolhe os processos zumbis.
 
 ---
 
@@ -634,5 +634,9 @@ Vídeos do teste: `VIDEO` = `dQw4w9WgXcQ` (3:33); `LONGO` = `I03Hs6dwj7E`, 1767 
 
 - **Tarefa 1, portão de memória:** o pico do 3b somado ao bot e ao buffer, com folga, deu 641 MiB, acima dos 512 MiB do Passo 4, e o zipimport também não coube (588 MiB). Quem pesa é o Node que o yt-dlp abre para os desafios do YouTube, 169 MiB por extração. Em 14/10/2026 o dono decidiu subir o limite para 640m e manter o `.zip`, que resolve 1,3 s mais rápido. O resto do desenho não muda.
 - **Tarefa 3, `classifyFailure`:** o trecho `not available in your country` da tabela não casa com a mensagem real de bloqueio regional ("The uploader has not made this video available in your country") nem com a do yt-dlp ("…due to geo restriction"). Sem a correção, o bloqueio regional contaria como `failure` e entraria no alerta. O padrão aceita também `not made this video available in your country` e `geo restriction`, ambos testados.
+- **Tarefa 4, métricas:** os quatro campos e as quatro definições de música entraram no `metrics.ts` já na Tarefa 4, e não na 7, porque o `recordFailure` os usa e cada commit precisa passar no typecheck.
+- **Tarefa 4, grupo de processos:** o yt-dlp e o ffmpeg nascem com `detached: true` (grupo próprio), e o `kill()` e o prazo da resolução sinalizam o grupo inteiro. Sem isso, matar o yt-dlp na extração deixaria órfão o Node que ele abre para os desafios. Testado com um yt-dlp falso, inclusive com um processo que ignora o SIGTERM e morre pelo SIGKILL depois de 2 s.
+- **Tarefa 4, log da resolução:** a resolução também registra `[música] falha (<tipo>) ao resolver <alvo>: <última linha>`, porque a resposta de `failure` diz que o erro ficou registrado.
+- **Tarefa 4, bancada:** depois de umas 60 extrações em uma hora no IP de casa, o YouTube respondeu "Sign in to confirm you're not a bot" (classificado como `bot-check`). Por isso os caminhos do `kill()` foram testados com um yt-dlp falso, sem o YouTube. Um pico de 415 MiB nessa bancada foi cache de arquivos que o container recarregou (71 MiB de `file`) e não muda a conta dos 640m.
 - **Tarefa 1, Passo 3:** o container de teste rodou em segundo plano (`--entrypoint sleep … infinity`), com os comandos via `docker exec`, e com `--init`, como o `init: true` do compose. O `time ( … )` virou `time sh -c "…"`, porque o `time` do busybox não mede subshell.
 - **Tarefa 1, zipimport:** testado com um `Dockerfile` à parte, fora do worktree (`yt-dlp` da mesma release, SHA-256 `1fa6733c…d4d6` do `SHA2-256SUMS`, mais `apk add python3`). O primeiro 3c dele falhou com `HTTP Error 403: Forbidden`; as duas tentativas seguintes e o 3b repetido baixaram a faixa inteira, então o 403 foi passageiro.

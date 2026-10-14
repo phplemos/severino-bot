@@ -11,7 +11,11 @@ export const metrics = {
 	roomsDeleted: 0,
 	commandErrors: 0,
 	listenerErrors: 0,
-	jobErrors: 0
+	jobErrors: 0,
+	musicConnected: 0,
+	musicTracksStarted: 0,
+	musicFailures: 0,
+	musicBotChecks: 0
 };
 
 const startTimeSeconds = Math.floor(Date.now() / 1000);
@@ -30,6 +34,10 @@ const definitions: [name: string, kind: Kind, help: string, value: () => number]
 	['severino_command_errors_total', 'counter', 'Comandos que terminaram em erro.', () => metrics.commandErrors],
 	['severino_listener_errors_total', 'counter', 'Eventos do Discord que terminaram em erro.', () => metrics.listenerErrors],
 	['severino_job_errors_total', 'counter', 'Rotinas periódicas que terminaram em erro.', () => metrics.jobErrors],
+	['severino_music_connected', 'gauge', '1 quando o bot está num canal de voz para tocar música.', () => metrics.musicConnected],
+	['severino_music_tracks_started_total', 'counter', 'Faixas que começaram a tocar.', () => metrics.musicTracksStarted],
+	['severino_music_failures_total', 'counter', 'Faixas que falharam por erro do yt-dlp ou do ffmpeg; vídeo indisponível ou com restrição de idade não conta.', () => metrics.musicFailures],
+	['severino_music_bot_checks_total', 'counter', 'Vezes em que o YouTube pediu para confirmar que não é robô.', () => metrics.musicBotChecks],
 	['process_start_time_seconds', 'gauge', 'Hora de início do processo.', () => startTimeSeconds]
 ];
 
