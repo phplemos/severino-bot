@@ -6,6 +6,7 @@ import { leaveIfNotAllowed } from '../lib/guilds.js';
 import { every } from '../lib/jobs.js';
 import { syncGuildMembers } from '../lib/members.js';
 import { metrics } from '../lib/metrics.js';
+import { sweepMusicCache } from '../lib/music/process.js';
 import { prisma } from '../lib/prisma.js';
 import { refreshRankingMessage } from '../lib/ranking.js';
 import { reconcileRooms } from '../lib/tempRooms.js';
@@ -43,13 +44,14 @@ export class ClientReadyListener extends Listener<typeof Events.ClientReady> {
 			const target = currentGuild();
 			if (target) await refreshRankingMessage(target);
 		}, { runNow: true });
+		every(60 * MINUTE, 'cache de música', () => sweepMusicCache(), { runNow: true });
 		every(60 * MINUTE, 'reconciliação', async () => {
 			const target = currentGuild();
 			if (!target) return;
 			if (config.AUTO_SYNC_MEMBERS) await this.syncMembers(target);
 			await this.reconcile(target);
 		});
-		logger.info('Rotinas iniciadas: voz a cada minuto, ranking a cada 5 minutos, reconciliação a cada hora.');
+		logger.info('Rotinas iniciadas: voz a cada minuto, ranking a cada 5 minutos, reconciliação e limpeza do cache de música a cada hora.');
 	}
 
 	/** Executa uma etapa do boot sem deixar a falha de uma impedir as outras. */

@@ -4,6 +4,7 @@ export const TIME_ZONE = 'America/Sao_Paulo';
 const dayParts = new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: TIME_ZONE, dateStyle: 'short' });
 const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: TIME_ZONE, dateStyle: 'short', timeStyle: 'short' });
+const timeFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: TIME_ZONE, timeStyle: 'short' });
 
 /** Dia civil em Brasília, no formato YYYY-MM-DD. */
 export function dayKey(date: Date = new Date()): string {
@@ -28,6 +29,11 @@ export function formatDate(date: Date): string {
 /** Data e hora no formato brasileiro, no horário de Brasília (dd/mm/aaaa hh:mm). */
 export function formatDateTime(date: Date): string {
 	return dateTimeFormatter.format(date);
+}
+
+/** Hora no horário de Brasília (hh:mm). */
+export function formatTime(date: Date): string {
+	return timeFormatter.format(date);
 }
 
 /** "12/10" a partir de uma chave YYYY-MM-DD. */

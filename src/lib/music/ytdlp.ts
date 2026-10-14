@@ -6,14 +6,18 @@ export const RESOLVE_TIMEOUT_MS = 30_000;
 export const MAX_TRACK_SECONDS = 30 * 60;
 
 const AUDIO_FORMAT = 'bestaudio[acodec=opus]/bestaudio/best';
-const COMMON = [
+// Sem cache em disco, o cache do yt-dlp (scripts do player do YouTube) fica no /tmp e some a cada reinício
+export const DEFAULT_YTDLP_CACHE = '/tmp/yt-dlp';
+const common = (cacheDir: string) => [
 	'--ignore-config', '--quiet', '--no-warnings', '--no-progress', '--no-playlist',
-	'--js-runtimes', 'node', '--cache-dir', '/tmp/yt-dlp', '--socket-timeout', '15'
+	'--js-runtimes', 'node', '--cache-dir', cacheDir, '--socket-timeout', '15'
 ];
 
 /** target é a URL remontada pelo parseQuery ou `ytsearch1:<texto>`. Sem --flat-playlist: a busca também passa pela escolha de formato. */
-export const resolveArgs = (target: string) => [...COMMON, '-J', '-f', AUDIO_FORMAT, '--', target];
-export const streamArgs = (url: string) => [...COMMON, '-f', AUDIO_FORMAT, '-o', '-', '--', url];
+export const resolveArgs = (target: string, cacheDir = DEFAULT_YTDLP_CACHE) => [...common(cacheDir), '-J', '-f', AUDIO_FORMAT, '--', target];
+export const streamArgs = (url: string, cacheDir = DEFAULT_YTDLP_CACHE) => [...common(cacheDir), '-f', AUDIO_FORMAT, '-o', '-', '--', url];
+/** Baixa a partir do JSON que o pedido já extraiu: nenhuma chamada nova à API do YouTube, só o download do áudio. */
+export const loadInfoArgs = (infoPath: string, cacheDir = DEFAULT_YTDLP_CACHE) => [...common(cacheDir), '--load-info-json', infoPath, '-f', AUDIO_FORMAT, '-o', '-'];
 export const FFMPEG_ARGS = [
 	'-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-vn',
 	'-ac', '2', '-ar', '48000', '-c:a', 'libopus', '-b:a', '128k', '-f', 'ogg', 'pipe:1'
@@ -23,14 +27,20 @@ export type ResolveResult =
 	| { ok: true; track: Omit<Track, 'requestedBy'> }
 	| { ok: false; reason: 'no-results' | 'live' | 'too-long' };
 
-type Info = Record<string, unknown>;
+export type Info = Record<string, unknown>;
 const isInfo = (value: unknown): value is Info => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value : null);
 
+/** O dicionário do vídeo no JSON do `yt-dlp -J`: na busca, o primeiro resultado; no link, o próprio vídeo. */
+export function resolvedEntry(json: unknown): Info | null {
+	const info = isInfo(json) ? json : null;
+	if (info?._type !== 'playlist') return info;
+	return Array.isArray(info.entries) && isInfo(info.entries[0]) ? info.entries[0] : null;
+}
+
 /** Lê o JSON do `yt-dlp -J`: na busca, o primeiro resultado; no link, o próprio vídeo. */
 export function parseResolved(json: unknown): ResolveResult {
-	let info = isInfo(json) ? json : null;
-	if (info?._type === 'playlist') info = Array.isArray(info.entries) && isInfo(info.entries[0]) ? info.entries[0] : null;
+	const info = resolvedEntry(json);
 	if (!info) return { ok: false, reason: 'no-results' };
 
 	const id = info.id;

@@ -1,10 +1,27 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createReadStream, type ReadStream } from 'node:fs';
 import { PassThrough, type Readable } from 'node:stream';
 import { container } from '@sapphire/framework';
 import { config } from '../../config.js';
 import { metrics } from '../metrics.js';
+import { blockYoutube, youtubeBlockedUntil } from './block.js';
+import { MusicCache, type CachedTrack } from './cache.js';
 import { Limiter } from './limiter.js';
-import { FFMPEG_ARGS, RESOLVE_TIMEOUT_MS, classifyFailure, parseResolved, resolveArgs, streamArgs, type ResolveResult, type YtDlpFailure } from './ytdlp.js';
+import type { Track } from './queue.js';
+import {
+	DEFAULT_YTDLP_CACHE,
+	FFMPEG_ARGS,
+	RESOLVE_TIMEOUT_MS,
+	classifyFailure,
+	loadInfoArgs,
+	parseResolved,
+	resolveArgs,
+	resolvedEntry,
+	streamArgs,
+	type Info,
+	type ResolveResult,
+	type YtDlpFailure
+} from './ytdlp.js';
 
 const STDERR_TAIL_BYTES = 4 * 1024;
 const MAX_JSON_BYTES = 10 * 1024 * 1024;
@@ -12,6 +29,11 @@ const KILL_GRACE_MS = 2_000;
 
 // Cada resolução abre um yt-dlp e um Node para os desafios do YouTube: uma por vez, até 5 na espera
 const resolutions = new Limiter(1, 5);
+
+/** O cache em disco, quando MUSIC_CACHE_DIR está definido (no Docker, sempre). */
+export const musicCache = config.MUSIC_CACHE_DIR ? new MusicCache(config.MUSIC_CACHE_DIR) : null;
+// Com o cache em disco, os scripts do player do YouTube também sobrevivem a reinícios: menos chamadas a ele
+const ytDlpCache = musicCache?.ytDlpDir ?? DEFAULT_YTDLP_CACHE;
 
 interface Run {
 	child: ChildProcess;
@@ -58,15 +80,45 @@ function lastLine(text: string): string {
 	return text.trim().split('\n').at(-1)?.trim() || '(sem stderr)';
 }
 
-export type ResolveOutcome = ResolveResult | { ok: false; reason: YtDlpFailure | 'busy' };
+export type ResolveOutcome = ResolveResult | { ok: false; reason: YtDlpFailure | 'busy' | 'blocked' };
 
-/** Resolve um pedido com `yt-dlp -J`. Com a espera cheia, devolve busy sem abrir processo. */
-export async function resolveTrack(target: string): Promise<ResolveOutcome> {
-	return (await resolutions.run(() => runResolve(target))) ?? { ok: false, reason: 'busy' };
+/** O que o /musica tocar pede: um vídeo já validado pelo parseQuery ou um texto de busca. */
+export type ResolveQuery = { kind: 'video'; id: string; url: string } | { kind: 'search'; text: string };
+
+/**
+ * Resolve um pedido. Primeiro o cache, sem tocar no YouTube; depois o `yt-dlp -J`, uma resolução por vez,
+ * a não ser que o YouTube esteja em pausa. Com a espera cheia, devolve busy sem abrir processo.
+ */
+export async function resolveTrack(query: ResolveQuery): Promise<ResolveOutcome> {
+	const cached = await fromCache(query);
+	if (cached) return { ok: true, track: cached };
+	if (youtubeBlockedUntil()) return { ok: false, reason: 'blocked' };
+	return (await resolutions.run(() => runResolve(query))) ?? { ok: false, reason: 'busy' };
 }
 
-async function runResolve(target: string): Promise<ResolveOutcome> {
-	const run = start(config.YTDLP_PATH, resolveArgs(target), 'ignore');
+async function fromCache(query: ResolveQuery): Promise<CachedTrack | null> {
+	if (!musicCache) return null;
+	const id = query.kind === 'video' ? query.id : await musicCache.getSearch(query.text);
+	return id ? musicCache.getTrack(id) : null;
+}
+
+/** Guarda o pedido: a busca, os dados da faixa e o JSON completo, que a hora de tocar reaproveita. */
+async function remember(query: ResolveQuery, track: CachedTrack, info: Info): Promise<void> {
+	if (!musicCache) return;
+	try {
+		await Promise.all([
+			musicCache.setTrack(track),
+			musicCache.setInfo(track.id, info),
+			query.kind === 'search' ? musicCache.setSearch(query.text, track.id) : Promise.resolve()
+		]);
+	} catch (error) {
+		container.logger.warn(`[música] Não consegui gravar ${track.id} no cache:`, error);
+	}
+}
+
+async function runResolve(query: ResolveQuery): Promise<ResolveOutcome> {
+	const target = query.kind === 'video' ? query.url : `ytsearch1:${query.text}`;
+	const run = start(config.YTDLP_PATH, resolveArgs(target, ytDlpCache), 'ignore');
 	const chunks: Buffer[] = [];
 	let size = 0;
 	let problem: string | null = null;
@@ -91,7 +143,11 @@ async function runResolve(target: string): Promise<ResolveOutcome> {
 		problem = spawnError ? spawnError.message : problem;
 	} else if (code === 0) {
 		try {
-			return parseResolved(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+			const json: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+			const result = parseResolved(json);
+			const info = resolvedEntry(json);
+			if (result.ok && info) await remember(query, result.track, info);
+			return result;
 		} catch (error) {
 			outcome = { ok: false, reason: 'failure' };
 			problem = `JSON inválido: ${error instanceof Error ? error.message : String(error)}`;
@@ -105,36 +161,103 @@ async function runResolve(target: string): Promise<ResolveOutcome> {
 	return outcome;
 }
 
-/** A regra única de contagem: bot-check e failure contam; unavailable e age são do vídeo, não nossos. */
+/**
+ * A regra única de contagem: bot-check e failure contam; unavailable e age são do vídeo, não nossos.
+ * Um bot-check também põe o YouTube em pausa por 1 hora.
+ */
 export function recordFailure(reason: YtDlpFailure): void {
-	if (reason === 'bot-check') metrics.musicBotChecks++;
-	else if (reason === 'failure') metrics.musicFailures++;
+	if (reason === 'bot-check') {
+		metrics.musicBotChecks++;
+		const until = blockYoutube();
+		container.logger.warn(`[música] YouTube em pausa até ${until.toISOString()}: até lá, só toca o que está no cache`);
+	} else if (reason === 'failure') {
+		metrics.musicFailures++;
+	}
+}
+
+/** Se a faixa toca sem o YouTube, direto do cache. */
+export function hasCachedAudio(id: string): boolean {
+	return Boolean(musicCache?.audio(id));
+}
+
+/** Apaga o que venceu no cache e mantém o áudio abaixo do teto. */
+export async function sweepMusicCache(): Promise<void> {
+	if (!musicCache) return;
+	const { removed, bytes } = await musicCache.sweep();
+	if (removed > 0) container.logger.info(`[música] cache: ${removed} arquivo(s) vencido(s) apagado(s), ${(bytes / 1024 ** 2).toFixed(1)} MiB`);
 }
 
 export interface AudioHandle {
 	stream: Readable;
-	/** null quando os dois processos terminaram bem ou foram mortos por nós; senão, o tipo da falha. */
+	/** null quando a fonte e o ffmpeg terminaram bem ou foram mortos por nós; senão, o tipo da falha. */
 	finished: Promise<YtDlpFailure | null>;
 	kill(): void;
 }
 
-/** Baixa a faixa com o yt-dlp e a converte em Ogg/Opus com o ffmpeg, que é o que o Discord toca. */
-export function openAudio(url: string): AudioHandle {
-	const download = start(config.YTDLP_PATH, streamArgs(url), 'ignore');
+interface SourceResult {
+	failure: YtDlpFailure | null;
+	detail: string;
+}
+
+/**
+ * Converte a faixa em Ogg/Opus com o ffmpeg, que é o que o Discord toca. O áudio vem do cache, quando a
+ * faixa já tocou; senão, do yt-dlp, que reaproveita a extração do pedido se ela for recente. O download é
+ * gravado no cache enquanto toca.
+ */
+export function openAudio(track: Pick<Track, 'id' | 'url'>): AudioHandle {
 	const encoder = start('ffmpeg', FFMPEG_ARGS, 'pipe');
 	// Guarda uns 40 MiB (escrita + leitura), a faixa inteira dentro do limite de 30 min: o yt-dlp baixa em segundos
 	const buffer = new PassThrough({ highWaterMark: 20 * 1024 * 1024 });
-	download.child.stdout!.pipe(buffer).pipe(encoder.child.stdin!);
+	buffer.pipe(encoder.child.stdin!);
 	// EPIPE quando o ffmpeg morre primeiro; o resultado sai de `finished`
 	encoder.child.stdin!.on('error', () => undefined);
 
 	const killedByUs = new Set<ChildProcess>();
+	let file: ReadStream | null = null;
+	let download: Run | null = null;
+	let source: Promise<SourceResult>;
+
+	const cachedPath = musicCache?.audio(track.id) ?? null;
+	if (cachedPath) {
+		metrics.musicCacheHits++;
+		const stream = createReadStream(cachedPath);
+		file = stream;
+		stream.pipe(buffer);
+		source = new Promise((resolve) => {
+			stream.once('error', (error) => {
+				buffer.end();
+				resolve({ failure: 'failure', detail: `cache: ${error.message}` });
+			});
+			stream.once('close', () => resolve({ failure: null, detail: '' }));
+		});
+	} else {
+		const info = musicCache?.freshInfo(track.id) ?? null;
+		const run = start(config.YTDLP_PATH, info ? loadInfoArgs(info, ytDlpCache) : streamArgs(track.url, ytDlpCache), 'ignore');
+		download = run;
+		const writer = musicCache?.audioWriter(track.id) ?? null;
+		run.child.stdout!.pipe(buffer);
+		if (writer) run.child.stdout!.pipe(writer.stream);
+		source = run.closed.then(async ({ code, spawnError }): Promise<SourceResult> => {
+			if (killedByUs.has(run.child)) {
+				writer?.discard();
+				return { failure: null, detail: '' };
+			}
+			if (spawnError || code !== 0) {
+				writer?.discard();
+				return { failure: spawnError ? 'failure' : classifyFailure(run.stderr()), detail: spawnError?.message ?? lastLine(run.stderr()) };
+			}
+			if (writer && !(await writer.commit().catch(() => false))) container.logger.warn(`[música] Não consegui guardar o áudio de ${track.id} no cache`);
+			return { failure: null, detail: '' };
+		});
+	}
+
 	let killed = false;
 	const kill = () => {
 		if (killed) return;
 		killed = true;
+		file?.destroy();
 		// Quem já saiu sozinho guarda o próprio resultado: uma falha que chegou antes do Idle não é apagada
-		const alive = [download.child, encoder.child].filter(isAlive);
+		const alive = [download?.child, encoder.child].filter((child): child is ChildProcess => child !== undefined && isAlive(child));
 		for (const child of alive) {
 			killedByUs.add(child);
 			signalGroup(child, 'SIGTERM');
@@ -146,20 +269,13 @@ export function openAudio(url: string): AudioHandle {
 		}
 	};
 
-	const failedOnItsOwn = (run: Run, result: { code: number | null; spawnError: Error | null }) =>
-		!killedByUs.has(run.child) && (result.spawnError !== null || result.code !== 0);
-
-	const finished = Promise.all([download.closed, encoder.closed]).then(([downloaded, encoded]) => {
-		let failure: YtDlpFailure | null = null;
-		let detail = '';
-		if (failedOnItsOwn(download, downloaded)) {
-			failure = downloaded.spawnError ? 'failure' : classifyFailure(download.stderr());
-			detail = downloaded.spawnError?.message ?? lastLine(download.stderr());
-		} else if (failedOnItsOwn(encoder, encoded)) {
+	const finished = Promise.all([source, encoder.closed]).then(([fetched, encoded]) => {
+		let { failure, detail } = fetched;
+		if (!failure && !killedByUs.has(encoder.child) && (encoded.spawnError !== null || encoded.code !== 0)) {
 			failure = 'failure';
 			detail = encoded.spawnError?.message ?? lastLine(encoder.stderr());
 		}
-		if (failure) container.logger.warn(`[música] falha (${failure}) em ${new URL(url).searchParams.get('v') ?? url}: ${detail}`);
+		if (failure) container.logger.warn(`[música] falha (${failure}) em ${track.id}: ${detail}`);
 		return failure;
 	});
 

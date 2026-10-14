@@ -13,8 +13,9 @@ import {
 } from '@discordjs/voice';
 import { escapeMarkdown, type Guild, type GuildTextBasedChannel, type Message, type VoiceChannel, type VoiceState } from 'discord.js';
 import { metrics } from '../metrics.js';
+import { blockNotice, youtubeBlockedUntil } from './block.js';
 import { renderEnded, renderPlayer, type PlayerView } from './player.js';
-import { openAudio, recordFailure, type AudioHandle } from './process.js';
+import { hasCachedAudio, openAudio, recordFailure, type AudioHandle } from './process.js';
 import { TrackQueue, type Track } from './queue.js';
 import { failureMessage } from './ytdlp.js';
 
@@ -243,7 +244,16 @@ export class MusicSession {
 
 	/** Tira a próxima faixa da fila e começa a tocar; sem faixa, começa a contar a ociosidade. */
 	private playNext(): void {
-		const track = this.queue.shift() ?? null;
+		let track = this.queue.shift() ?? null;
+		// Com o YouTube em pausa, só toca o que já está no cache; o resto sai da fila de uma vez, com um aviso só
+		if (youtubeBlockedUntil()) {
+			let skipped = 0;
+			while (track && !hasCachedAudio(track.id)) {
+				skipped++;
+				track = this.queue.shift() ?? null;
+			}
+			if (skipped > 0) this.notify(`⏭️ Tirei ${skipped} música(s) da fila que ainda não estão no cache. ${blockNotice()}`);
+		}
 		this.playing = track;
 		if (!track) {
 			this.idleTimer ??= setTimeout(() => this.destroy('fila vazia por 5 minutos', '👋 Saí do canal: nada tocou nos últimos 5 minutos.'), IDLE_LEAVE_MS);
@@ -251,7 +261,7 @@ export class MusicSession {
 			return;
 		}
 
-		this.handle = openAudio(track.url);
+		this.handle = openAudio(track);
 		this.player.play(createAudioResource(this.handle.stream, { inputType: StreamType.OggOpus, metadata: track }));
 		metrics.musicTracksStarted++;
 		this.cardPosted = this.postCard();
@@ -268,7 +278,7 @@ export class MusicSession {
 			const failure = await handle.finished;
 			if (failure && track) {
 				recordFailure(failure);
-				this.notify(`⚠️ Não consegui tocar **${escapeMarkdown(track.title)}**: ${failureMessage(failure)}`);
+				this.notify(`⚠️ Não consegui tocar **${escapeMarkdown(track.title)}**: ${failureMessage(failure)} ${blockNotice()}`.trimEnd());
 			}
 		}
 		if (!this.destroyed) this.playNext();

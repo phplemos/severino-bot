@@ -1,5 +1,6 @@
 import { Command } from '@sapphire/framework';
 import { ChannelType, MessageFlags, PermissionFlagsBits, escapeMarkdown } from 'discord.js';
+import { blockNotice } from '../lib/music/block.js';
 import { describeTrack, renderQueue } from '../lib/music/player.js';
 import { recordFailure, resolveTrack } from '../lib/music/process.js';
 import { parseQuery } from '../lib/music/query.js';
@@ -97,7 +98,8 @@ export class MusicaCommand extends Command {
 		await interaction.deferReply();
 		const answer = (content: string) => interaction.editReply({ content, allowedMentions: NO_MENTIONS });
 
-		const resolved = await resolveTrack(query.kind === 'video' ? query.url : `ytsearch1:${query.text}`);
+		// Um pedido repetido sai do cache, sem tocar no YouTube
+		const resolved = await resolveTrack(query);
 		if (!resolved.ok) {
 			switch (resolved.reason) {
 				case 'busy':
@@ -108,9 +110,12 @@ export class MusicaCommand extends Command {
 					return answer('Transmissões ao vivo ainda não são suportadas.');
 				case 'too-long':
 					return answer('Esse vídeo passa de 30 minutos.');
+				case 'blocked':
+					return answer(`O YouTube bloqueou o bot por enquanto, e essa música ainda não está no cache. ${blockNotice()}`);
 				default:
+					// Um bot-check põe o YouTube em pausa; a resposta já diz até quando
 					recordFailure(resolved.reason);
-					return answer(failureMessage(resolved.reason));
+					return answer(`${failureMessage(resolved.reason)} ${blockNotice()}`.trimEnd());
 			}
 		}
 		const track = { ...resolved.track, requestedBy: interaction.user.id };
