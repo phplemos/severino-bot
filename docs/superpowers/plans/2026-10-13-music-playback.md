@@ -387,11 +387,11 @@ export class MusicSession {
 }
 ```
 
-- [ ] **Entrada no canal (`startSession`):**
+- [x] **Entrada no canal (`startSession`):**
   - `joinVoiceChannel({ channelId, guildId, adapterCreator: guild.voiceAdapterCreator, selfDeaf: true })` e depois `await entersState(connection, VoiceConnectionStatus.Ready, 20_000)`. Se falhar, `connection.destroy()` e propagar o erro. É aqui que aparecem problemas de DAVE e de permissão.
   - `createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } })` e `connection.subscribe(player)`.
   - Registrar a sessão no mapa e pôr `metrics.musicConnected = 1`.
-- [ ] Reconexão, no padrão do guia do discord.js:
+- [x] Reconexão, no padrão do guia do discord.js:
 
 ```ts
 connection.on(VoiceConnectionStatus.Disconnected, async () => {
@@ -408,26 +408,26 @@ connection.on(VoiceConnectionStatus.Disconnected, async () => {
 connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão encerrada'));
 ```
 
-- [ ] **`playNext({ announce })`:**
+- [x] **`playNext({ announce })`:**
   - Tira a próxima faixa da fila. Sem faixa, `current = null` e o timer de ociosidade começa.
   - Com faixa: `current = track` na hora, depois `openAudio(track.url)`, `createAudioResource(handle.stream, { inputType: StreamType.OggOpus, metadata: track })`, `player.play(resource)` e `metrics.musicTracksStarted++`.
   - `announce` vale `false` quando o próprio `/musica tocar` responde que a faixa começou, para não avisar duas vezes.
-- [ ] **`AudioPlayerStatus.Idle`:**
+- [x] **`AudioPlayerStatus.Idle`:**
   - Chamar `handle.kill()` e depois `await handle.finished`.
   - Se houve falha: `recordFailure(tipo)` e avisar "⚠️ Não consegui tocar **título**: <failureMessage(tipo)>". Como o pedido já resolve a faixa por inteiro, aqui sobram as falhas do download.
   - Seguir com `playNext({ announce: true })`.
-- [ ] No `error` do player, registrar no log. O `Idle` vem em seguida e cuida do resto.
-- [ ] **Timers:**
+- [x] No `error` do player, registrar no log. O `Idle` vem em seguida e cuida do resto.
+- [x] **Timers:**
   - Com a fila vazia, a sessão sai depois de `IDLE_LEAVE_MS` com "👋 Saí do canal: nada tocou nos últimos 5 minutos". Um `enqueue` cancela o timer.
   - `onVoiceStateUpdate`:
     - O canal do bot ficou sem humanos: sai depois de `ALONE_LEAVE_MS` com "👋 Saí do canal: fiquei sozinho". Se alguém voltar, o timer é cancelado.
     - O próprio bot (`newState.id === client.user.id`) mudou de canal: atualiza `voiceChannelId` e reavalia o timer de "sozinho" no canal novo.
     - O bot foi tirado do canal (`newState.channelId === null`): `destroy`.
-- [ ] **Avisos:** `textChannel.send({ content, allowedMentions: { parse: [] } })` com `.catch` que só registra no log. Títulos passam por `escapeMarkdown`.
-- [ ] **`destroy(reason)`:**
+- [x] **Avisos:** `textChannel.send({ content, allowedMentions: { parse: [] } })` com `.catch` que só registra no log. Títulos passam por `escapeMarkdown`.
+- [x] **`destroy(reason)`:**
   - É idempotente: limpa os timers e a fila, chama `handle?.kill()` e `player.stop(true)`, destrói a conexão se ela ainda existir, tira a sessão do mapa e põe `metrics.musicConnected = 0`.
   - Registra no log `[música] sessão encerrada: <motivo>`.
-- [ ] Salas temporárias: `tempRooms.ts` não muda. Bots não seguram sala, então quando o último humano sai a sala é apagada com o bot dentro, o bot cai e a sessão termina pelo `Disconnected`. O teste fica na checklist da Tarefa 9.
+- [x] Salas temporárias: `tempRooms.ts` não muda. Bots não seguram sala, então quando o último humano sai a sala é apagada com o bot dentro, o bot cai e a sessão termina pelo `Disconnected`. O teste fica na checklist da Tarefa 9.
 
 ---
 
@@ -638,5 +638,6 @@ Vídeos do teste: `VIDEO` = `dQw4w9WgXcQ` (3:33); `LONGO` = `I03Hs6dwj7E`, 1767 
 - **Tarefa 4, grupo de processos:** o yt-dlp e o ffmpeg nascem com `detached: true` (grupo próprio), e o `kill()` e o prazo da resolução sinalizam o grupo inteiro. Sem isso, matar o yt-dlp na extração deixaria órfão o Node que ele abre para os desafios. Testado com um yt-dlp falso, inclusive com um processo que ignora o SIGTERM e morre pelo SIGKILL depois de 2 s.
 - **Tarefa 4, log da resolução:** a resolução também registra `[música] falha (<tipo>) ao resolver <alvo>: <última linha>`, porque a resposta de `failure` diz que o erro ficou registrado.
 - **Tarefa 4, bancada:** depois de umas 60 extrações em uma hora no IP de casa, o YouTube respondeu "Sign in to confirm you're not a bot" (classificado como `bot-check`). Por isso os caminhos do `kill()` foram testados com um yt-dlp falso, sem o YouTube. Um pico de 415 MiB nessa bancada foi cache de arquivos que o container recarregou (71 MiB de `file`) e não muda a conta dos 640m.
+- **Tarefa 5, sessão:** duas adições pequenas. O `startSession` já avalia o timer de "sozinho", para o caso de quem pediu sair enquanto o bot entrava. E os humanos do canal são contados pelo cache de estados de voz, como no `voice.ts`: quem não está no cache conta como humano, e o bot fica. O fluxo foi testado com o `AudioPlayer` real tocando para uma conexão falsa e com o yt-dlp falso, sem Discord e sem YouTube.
 - **Tarefa 1, Passo 3:** o container de teste rodou em segundo plano (`--entrypoint sleep … infinity`), com os comandos via `docker exec`, e com `--init`, como o `init: true` do compose. O `time ( … )` virou `time sh -c "…"`, porque o `time` do busybox não mede subshell.
 - **Tarefa 1, zipimport:** testado com um `Dockerfile` à parte, fora do worktree (`yt-dlp` da mesma release, SHA-256 `1fa6733c…d4d6` do `SHA2-256SUMS`, mais `apk add python3`). O primeiro 3c dele falhou com `HTTP Error 403: Forbidden`; as duas tentativas seguintes e o 3b repetido baixaram a faixa inteira, então o 403 foi passageiro.
