@@ -71,7 +71,7 @@ Esta tarefa decide se o caminho se sustenta no container endurecido. Nada muda e
 
 **Arquivos:** modificar `Dockerfile`.
 
-- [ ] **Passo 1:** novo estágio antes do final:
+- [x] **Passo 1:** novo estágio antes do final:
 
 ```dockerfile
 # yt-dlp em pasta, não o binário único: o binário único se extrai no /tmp, que é noexec no container
@@ -93,13 +93,13 @@ ENV NODE_ENV=production CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPDATE_MESSAGE=1 YTDLP_
 COPY --from=ytdlp /opt/yt-dlp /opt/yt-dlp
 ```
 
-- [ ] **Passo 2:** build com tag separada. A `severino-bot:latest` fica intacta, porque o `severino-migrate` também a usa.
+- [x] **Passo 2:** build com tag separada. A `severino-bot:latest` fica intacta, porque o `severino-migrate` também a usa.
 
 ```bash
 docker build -t severino-bot:musica-teste severino-bot-musica
 ```
 
-- [ ] **Passo 3:** rodar com as mesmas restrições do compose.
+- [x] **Passo 3:** rodar com as mesmas restrições do compose.
 
 ```bash
 docker run --rm -it --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev --cap-drop ALL \
@@ -133,14 +133,14 @@ ffprobe -hide_banner /tmp/saida.ogg
 rm /tmp/saida.ogg
 ```
 
-- [ ] **Passo 4:** critérios do portão. Anote os números em "Medições", no fim deste plano.
+- [x] **Passo 4:** critérios do portão. Anote os números em "Medições", no fim deste plano.
   - `--version` roda, sem erro de `.so` ou de permissão.
   - O `-v` mostra o Node como runtime JS e nenhum aviso de desafio não resolvido.
   - O `ffprobe` mostra a duração inteira do vídeo longo.
   - Os dois `-J` levam poucos segundos. Somados ao início do download, dão o tempo até o primeiro som.
   - O teste não tem o bot nem o buffer. O limite do compose é a soma do pico do 3b, do bot em repouso (84 MiB e 18 PIDs) e do buffer cheio (40 MiB), com uns 25% de folga. Essa soma precisa caber em 512 MiB e 200 PIDs. Se não couber, reavalie antes de seguir.
-- [ ] **Se o `.zip` falhar:** trocar pelo `yt-dlp` zipimport da mesma release (3 MB, também traz os scripts EJS), com `apk add python3` no estágio final e `YTDLP_PATH=/opt/yt-dlp/yt-dlp`. O arquivo tem shebang de `python3`, então o código não muda. Se os dois falharem, pare e reavalie (Lavalink).
-- [ ] **Passo 5:** `docker rmi severino-bot:musica-teste` e commit do `Dockerfile`.
+- [x] **Se o `.zip` falhar:** (testado no critério de memória, que falhou também no zipimport; não adotado, ver "Desvios") trocar pelo `yt-dlp` zipimport da mesma release (3 MB, também traz os scripts EJS), com `apk add python3` no estágio final e `YTDLP_PATH=/opt/yt-dlp/yt-dlp`. O arquivo tem shebang de `python3`, então o código não muda. Se os dois falharem, pare e reavalie (Lavalink).
+- [x] **Passo 5:** `docker rmi severino-bot:musica-teste` e commit do `Dockerfile`.
 
 ---
 
@@ -621,9 +621,17 @@ Preencher nas Tarefas 1, 7 e 9.
 
 | Medida | Valor |
 |---|---|
-| Tamanho da imagem antes e depois | |
-| `-J` de busca e de link (3a) | |
-| Pico do pior caso no teste, faixa + resolução (3b: `memory.peak`, `pids.peak`) | |
-| Limites do compose (pico + bot em repouso + buffer, com folga) | |
+| Tamanho da imagem antes e depois | 429,1 MB → 748,5 MB com o `.zip` (zipimport: 674,2 MB) |
+| `-J` de busca e de link (3a) | `.zip`: busca 3,37–3,61 s, link 4,58–4,72 s (3 rodadas, cache quente). Zipimport: busca 4,71–4,88 s, link 6,02–6,27 s |
+| Pico do pior caso no teste, faixa + resolução (3b: `memory.peak`, `pids.peak`) | `.zip`: 388,8 MiB e 21 PIDs no procedimento do plano; 350,4 MiB numa repetição em container novo. Zipimport: 346,3 MiB e 21 PIDs; 323,7 MiB na repetição com o download conferido. Uma resolução sozinha: 262–304 MiB. Quase tudo é memória anônima: o Node que o yt-dlp abre para os desafios chega a 169 MiB (`RssAnon`), cada yt-dlp a 78 MiB (`.zip`) ou 64 MiB (zipimport), o ffmpeg a 13 MiB |
+| Limites do compose (pico + bot em repouso + buffer, com folga) | `mem_limit: 640m` e `pids_limit: 200`. Memória: (388,8 + 84 + 40) × 1,25 = 641 MiB, que não cabe nos 512 MiB do plano (sem folga, 512,8 MiB; zipimport, 588 MiB); o dono decidiu subir para 640m em 14/10/2026. PIDs: (21 + 18) × 1,25 ≈ 49, que cabe nos 200 do plano |
 | Pico no SDJ depois da checklist (item 13) | |
-| Tempo até o primeiro som | |
+| Tempo até o primeiro som | Teste, sem Discord: o download leva 4,55–4,90 s até os primeiros 8 KiB de Ogg; somado ao `-J` do pedido, dá uns 8–9,5 s |
+
+Vídeos do teste: `VIDEO` = `dQw4w9WgXcQ` (3:33); `LONGO` = `I03Hs6dwj7E`, 1767 s (29:27) pelo próprio yt-dlp, formato 251 (Opus, 142,9 kb/s, 30,1 MiB). O 3c trouxe a faixa inteira: `ffprobe` com `Duration: 00:29:27.32`, em 25,95 s (`.zip`) e 26,7 s (zipimport).
+
+## Desvios
+
+- **Tarefa 1, portão de memória:** o pico do 3b somado ao bot e ao buffer, com folga, deu 641 MiB, acima dos 512 MiB do Passo 4, e o zipimport também não coube (588 MiB). Quem pesa é o Node que o yt-dlp abre para os desafios do YouTube, 169 MiB por extração. Em 14/10/2026 o dono decidiu subir o limite para 640m e manter o `.zip`, que resolve 1,3 s mais rápido. O resto do desenho não muda.
+- **Tarefa 1, Passo 3:** o container de teste rodou em segundo plano (`--entrypoint sleep … infinity`), com os comandos via `docker exec`, e com `--init`, como o `init: true` do compose. O `time ( … )` virou `time sh -c "…"`, porque o `time` do busybox não mede subshell.
+- **Tarefa 1, zipimport:** testado com um `Dockerfile` à parte, fora do worktree (`yt-dlp` da mesma release, SHA-256 `1fa6733c…d4d6` do `SHA2-256SUMS`, mais `apk add python3`). O primeiro 3c dele falhou com `HTTP Error 403: Forbidden`; as duas tentativas seguintes e o 3b repetido baixaram a faixa inteira, então o 403 foi passageiro.
