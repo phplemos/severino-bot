@@ -172,7 +172,7 @@ Tudo o que dá para testar sem Discord nem processos. **Nenhum destes arquivos i
 
 **Arquivos:** criar `src/lib/music/query.ts`, `src/lib/music/queue.ts`, `src/lib/music/limiter.ts` e `src/lib/music/ytdlp.ts`; modificar `src/lib/format.ts` e `src/lib/permissions.ts`; criar `test/music.test.ts`.
 
-- [ ] **`query.ts`**
+- [x] **`query.ts`**
 
 ```ts
 export type ParsedQuery =
@@ -208,7 +208,7 @@ Casos de teste:
 | `--exec rm -rf` | `search`, com o texto intacto |
 | `   ` | `invalid` |
 
-- [ ] **`queue.ts`**
+- [x] **`queue.ts`**
 
 ```ts
 export interface Track {
@@ -236,7 +236,7 @@ export class TrackQueue {
 
 Testes: ordem de chegada, limite de 50, `clear`, `totalSeconds` ignorando durações nulas.
 
-- [ ] **`limiter.ts`:** limita as resoluções simultâneas.
+- [x] **`limiter.ts`:** limita as resoluções simultâneas.
 
 ```ts
 export class Limiter {
@@ -248,7 +248,7 @@ export class Limiter {
 
 Testes: com `new Limiter(1, 5)`, as tarefas rodam uma de cada vez e na ordem; a sétima simultânea recebe `null`; uma tarefa que lança libera a vaga.
 
-- [ ] **`ytdlp.ts`:** argumentos, leitura do JSON e classificação de erro.
+- [x] **`ytdlp.ts`:** argumentos, leitura do JSON e classificação de erro.
 
 ```ts
 export const RESOLVE_TIMEOUT_MS = 30_000;
@@ -300,12 +300,12 @@ export function failureMessage(reason: YtDlpFailure): string;
 
 Testes: um JSON de busca, um de vídeo, busca vazia, ao vivo, longo demais, ID inválido, e uma linha de stderr de cada tipo.
 
-- [ ] **`format.ts`:** `formatTrackTime(seconds: number | null)`. 225 vira `3:45`, 3723 vira `1:02:03` e `null` vira `?`.
-- [ ] **`permissions.ts`:**
+- [x] **`format.ts`:** `formatTrackTime(seconds: number | null)`. 225 vira `3:45`, 3723 vira `1:02:03` e `null` vira `?`.
+- [x] **`permissions.ts`:**
   - `hasAnyRole(roleIds: Iterable<string>, guildId: string): boolean`. O cargo @everyone tem o mesmo ID do servidor e não conta.
   - `canUseMusic(interaction: ChatInputCommandInteraction<'cached'>): Promise<boolean>`, que libera quem passa no `isBotAdmin` ou no `hasAnyRole`.
   - Testes do `hasAnyRole`: só @everyone, @everyone mais um cargo, nenhum cargo.
-- [ ] `npm run typecheck && npm test`
+- [x] `npm run typecheck && npm test`
 
 ---
 
@@ -633,5 +633,6 @@ Vídeos do teste: `VIDEO` = `dQw4w9WgXcQ` (3:33); `LONGO` = `I03Hs6dwj7E`, 1767 
 ## Desvios
 
 - **Tarefa 1, portão de memória:** o pico do 3b somado ao bot e ao buffer, com folga, deu 641 MiB, acima dos 512 MiB do Passo 4, e o zipimport também não coube (588 MiB). Quem pesa é o Node que o yt-dlp abre para os desafios do YouTube, 169 MiB por extração. Em 14/10/2026 o dono decidiu subir o limite para 640m e manter o `.zip`, que resolve 1,3 s mais rápido. O resto do desenho não muda.
+- **Tarefa 3, `classifyFailure`:** o trecho `not available in your country` da tabela não casa com a mensagem real de bloqueio regional ("The uploader has not made this video available in your country") nem com a do yt-dlp ("…due to geo restriction"). Sem a correção, o bloqueio regional contaria como `failure` e entraria no alerta. O padrão aceita também `not made this video available in your country` e `geo restriction`, ambos testados.
 - **Tarefa 1, Passo 3:** o container de teste rodou em segundo plano (`--entrypoint sleep … infinity`), com os comandos via `docker exec`, e com `--init`, como o `init: true` do compose. O `time ( … )` virou `time sh -c "…"`, porque o `time` do busybox não mede subshell.
 - **Tarefa 1, zipimport:** testado com um `Dockerfile` à parte, fora do worktree (`yt-dlp` da mesma release, SHA-256 `1fa6733c…d4d6` do `SHA2-256SUMS`, mais `apk add python3`). O primeiro 3c dele falhou com `HTTP Error 403: Forbidden`; as duas tentativas seguintes e o 3b repetido baixaram a faixa inteira, então o 403 foi passageiro.

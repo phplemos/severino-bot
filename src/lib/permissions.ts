@@ -17,3 +17,14 @@ export async function isBotAdmin(interaction: ChatInputCommandInteraction): Prom
 	if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
 	return (await getOwnerIds()).has(interaction.user.id);
 }
+
+/** Se há algum cargo além do @everyone, que tem o mesmo ID do servidor e não conta. */
+export function hasAnyRole(roleIds: Iterable<string>, guildId: string): boolean {
+	for (const roleId of roleIds) if (roleId !== guildId) return true;
+	return false;
+}
+
+/** A música é para quem tem algum cargo no servidor; administradores e donos do bot sempre podem. */
+export async function canUseMusic(interaction: ChatInputCommandInteraction<'cached'>): Promise<boolean> {
+	return hasAnyRole(interaction.member.roles.cache.keys(), interaction.guildId) || isBotAdmin(interaction);
+}
