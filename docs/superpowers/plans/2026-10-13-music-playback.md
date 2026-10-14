@@ -590,7 +590,7 @@ docker inspect severino-bot --format '{{.State.Health.Status}}'
   15. XP de voz: duas pessoas com o bot ganham XP, e uma pessoa sozinha com o bot não ganha. É a regra atual, e o bot não faz companhia.
 
   **Resultado em 14/10/2026** (versão `b683ca4`, com player, cache e nova tentativa de entrada), numa sala temporária do SDJ:
-  - **1, 4 e 6 (de dentro):** busca por texto toca; a fila andou e cada faixa ganhou o seu player no canal; Pular e Parar funcionam.
+  - **1, 6 (de dentro) e parte do 4:** busca por texto toca; com duas na fila, a troca de faixa publicou um player novo no canal; Pular e Parar funcionam. A `/musica fila` com três pedidos não foi conferida aqui.
   - **12:** depois de um Pular, só o ffmpeg da faixa nova; depois do download de uma faixa nova, o yt-dlp saiu sozinho; depois do Parar, nada sobra.
   - **13:** ver "Medições". Contadores: 6 faixas, 4 do cache, 0 falhas, 0 bot-checks.
   - **14:** do SIGTERM à saída, 0,18 s (pelos horários do log e do `FinishedAt`; o host não tem `/usr/bin/time`), código 0, com a sessão encerrada como "bot desligando". O `start` voltou saudável em uns 5 s.
