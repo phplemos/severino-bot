@@ -560,7 +560,7 @@ connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão ence
 ### Tarefa 9: Deploy e validação no SDJ
 
 - [ ] No Discord, conferir que o cargo do Severino tem Conectar e Falar no servidor e nas categorias das salas temporárias.
-- [ ] Trocar o worktree pela branch na pasta do build e subir. As migrações não mudam.
+- [x] Trocar o worktree pela branch na pasta do build e subir. As migrações não mudam.
 
 ```bash
 cd services/severino-bot
@@ -588,6 +588,14 @@ docker inspect severino-bot --format '{{.State.Health.Status}}'
   13. Depois dos itens anteriores, `docker exec severino-bot cat /sys/fs/cgroup/memory.peak /sys/fs/cgroup/pids.peak` fica abaixo dos limites do compose, e `docker exec severino-bot wget -qO- http://127.0.0.1:8080/metrics | grep music` mostra os contadores. Este item vem antes do 14 porque parar o container zera o pico.
   14. Durante uma música, `time docker compose stop severino-bot` leva menos de 20 s e `docker inspect severino-bot --format '{{.State.ExitCode}}'` dá 0, ou seja, saída ordenada e sem SIGKILL. Depois, `docker compose start severino-bot`.
   15. XP de voz: duas pessoas com o bot ganham XP, e uma pessoa sozinha com o bot não ganha. É a regra atual, e o bot não faz companhia.
+
+  **Resultado em 14/10/2026** (versão `b683ca4`, com player, cache e nova tentativa de entrada), numa sala temporária do SDJ:
+  - **1, 4 e 6 (de dentro):** busca por texto toca; a fila andou e cada faixa ganhou o seu player no canal; Pular e Parar funcionam.
+  - **12:** depois de um Pular, só o ffmpeg da faixa nova; depois do download de uma faixa nova, o yt-dlp saiu sozinho; depois do Parar, nada sobra.
+  - **13:** ver "Medições". Contadores: 6 faixas, 4 do cache, 0 falhas, 0 bot-checks.
+  - **14:** do SIGTERM à saída, 0,18 s (pelos horários do log e do `FinishedAt`; o host não tem `/usr/bin/time`), código 0, com a sessão encerrada como "bot desligando". O `start` voltou saudável em uns 5 s.
+  - **Entrada depois do Parar** (a situação da falha de manhã): Parar às 13:16:29, nova entrada às 13:17:00, de primeira.
+  - Os itens 2, 3, 5, 7 a 11, 15 e a recusa de fora do canal (6) ficam com o dono, no Discord.
 - [ ] Se algo grave aparecer, voltar com `git -C severino-bot switch main && docker compose up -d --build`. O `BulkOverwrite` do boot apaga o `/musica` sozinho, e os limites maiores do compose podem ficar.
 - [ ] Depois de validar: `git -C severino-bot switch main`, merge de `feat/musica` e push. O CI roda typecheck, testes e `npm audit`.
 
@@ -660,7 +668,7 @@ Preencher nas Tarefas 1, 7 e 9.
 | `-J` de busca e de link (3a) | `.zip`: busca 3,37–3,61 s, link 4,58–4,72 s (3 rodadas, cache quente). Zipimport: busca 4,71–4,88 s, link 6,02–6,27 s |
 | Pico do pior caso no teste, faixa + resolução (3b: `memory.peak`, `pids.peak`) | `.zip`: 388,8 MiB e 21 PIDs no procedimento do plano; 350,4 MiB numa repetição em container novo. Zipimport: 346,3 MiB e 21 PIDs; 323,7 MiB na repetição com o download conferido. Uma resolução sozinha: 262–304 MiB. Quase tudo é memória anônima: o Node que o yt-dlp abre para os desafios chega a 169 MiB (`RssAnon`), cada yt-dlp a 78 MiB (`.zip`) ou 64 MiB (zipimport), o ffmpeg a 13 MiB |
 | Limites do compose (pico + bot em repouso + buffer, com folga) | `mem_limit: 640m` e `pids_limit: 200`. Memória: (388,8 + 84 + 40) × 1,25 = 641 MiB, que não cabe nos 512 MiB do plano (sem folga, 512,8 MiB; zipimport, 588 MiB); o dono decidiu subir para 640m em 14/10/2026. PIDs: (21 + 18) × 1,25 ≈ 49, que cabe nos 200 do plano |
-| Pico no SDJ depois da checklist (item 13) | |
+| Pico no SDJ depois da checklist (item 13) | 427,5 MiB e 34 PIDs, de 640 MiB e 200, em 26 min com 6 faixas (4 do cache), Pular, Parar e uma nova entrada. O `memory.peak` inclui o cache de arquivos do kernel (88 MiB logo depois), que é liberado sob pressão; em repouso com uma faixa tocando, 175 MiB |
 | Tempo até o primeiro som | Teste, sem Discord: o download leva 4,55–4,90 s até os primeiros 8 KiB de Ogg; somado ao `-J` do pedido, dá uns 8–9,5 s. Com `--load-info-json` (14/10/2026): 0,95 s até o primeiro áudio, uns 5,7 s com o pedido; do cache, o pedido não chama o YouTube |
 
 Vídeos do teste: `VIDEO` = `dQw4w9WgXcQ` (3:33); `LONGO` = `I03Hs6dwj7E`, 1767 s (29:27) pelo próprio yt-dlp, formato 251 (Opus, 142,9 kb/s, 30,1 MiB). O 3c trouxe a faixa inteira: `ffprobe` com `Duration: 00:29:27.32`, em 25,95 s (`.zip`) e 26,7 s (zipimport).
