@@ -605,6 +605,20 @@ Depois que a primeira faixa tocou no SDJ, o dono pediu uma mensagem tipo player 
 - **Erros de botão:** um listener responde à pessoa e conta em `commandErrors`, como no `chatInputCommandError`.
 - **Testado:** 6 testes dos cartões e dos botões, e uma bancada com a sessão real, o `AudioPlayer` real, a conexão e o canal de texto falsos e o yt-dlp falso (publicar, editar, pausar, trocar de faixa, fila vazia, saída e falta de permissão).
 
+## Cache e pausa de proteção (pedido em 14/10/2026)
+
+No SDJ, duas faixas seguidas levaram "Sign in to confirm you're not a bot". Nas duas, o pedido (`-J`) passou e quem levou o bloqueio foi a segunda extração do mesmo vídeo, segundos depois, na hora de tocar. O dono perguntou se quem pediu podia fazer o teste de humano; não dá: o YouTube não manda captcha, só pede login; o bloqueio é do IP de casa, não de quem pediu; e o login OAuth por código, o único fluxo de "clique e digite um código", não funciona mais com o yt-dlp. Decidido: reaproveitar a extração do pedido, uma pausa depois de um bloqueio e um cache em disco. Feito na branch `feat/musica-cache`.
+
+**Diário ou semanal:** o áudio do YouTube em Opus ocupa uns 1 MB por minuto (3,4 MB nos 3:33 do teste). Com 30 a 100 faixas diferentes por dia, uma semana dá de 1 a 3 GB, e o `/mnt/personal_data` (HD, sempre ativo, porque o homelab roda nele) tem 748 GB livres. Semanal é viável, e quem repete música repete entre dias. Ficou em 7 dias desde o último uso, com teto de 10 GB de áudio.
+
+- **O que fica no cache** (`services/severino-bot/cache`, montado em `/cache`, dono uid 1000): o áudio como veio do YouTube; a busca → ID; os dados da faixa (revalidados pelo `parseResolved` na leitura); o JSON completo do pedido por 1 hora, que é quanto os links de áudio valem com folga; e o cache do próprio yt-dlp, que sobrevive a reinícios. Gravação atômica (arquivo `.partial` e rename); o áudio só vira cache se o download terminou bem, então uma faixa pulada no meio do download não entra.
+- **Pedido:** cache primeiro (o mesmo link ou a mesma busca, ignorando maiúsculas e espaços, não chama o YouTube); depois o `-J` de sempre, que agora grava o resultado.
+- **Hora de tocar:** áudio no cache → o ffmpeg lê o arquivo, sem yt-dlp; JSON do pedido com menos de 1 hora → `yt-dlp --load-info-json`, sem extrair de novo e sem o Node dos desafios; senão, a extração completa de antes.
+- **Pausa de proteção:** um bot-check (no pedido ou ao tocar) põe o YouTube em pausa por 1 hora. Pedidos que não estão no cache são recusados com a hora da volta, e as faixas da fila fora do cache saem de uma vez, com um aviso só. A pausa fica em memória.
+- **Limpeza:** no boot e de hora em hora (`planSweep`, testado à parte).
+- **Métricas novas:** `severino_music_cache_hits_total` e `severino_music_youtube_blocked`.
+- **Testado:** 12 testes (cache em diretório temporário, prazos, limpeza, pausa); uma bancada com o yt-dlp falso que conta as chamadas (pedido repetido e busca escrita diferente: nenhuma; tocar logo depois do pedido: só o download com `--load-info-json`; tocar de novo: nenhuma; pausa: pedido novo recusado sem chamada, pedido em cache aceito); e um pedido real, que tocou com `--load-info-json`, com o primeiro áudio em 0,95 s, contra 4,6 a 4,9 s com a segunda extração.
+
 ## Manutenção
 
 Esta seção também vai para o README do bot (Tarefa 8), que é para onde os alertas apontam.
@@ -625,7 +639,7 @@ Esta seção também vai para o README do bot (Tarefa 8), que é para onde os al
 - Volume ou normalização, com filtro do ffmpeg (`volume`, `loudnorm`) aplicado a partir da faixa seguinte.
 - Repetir e embaralhar.
 - ~~Botões na mensagem "Tocando agora".~~ Feito em 14/10/2026: ver "Player com botões".
-- Menos espera até o primeiro som: guardar no `/tmp` o JSON do `-J` do pedido e tocar com `--load-info-json`, sem resolver a faixa de novo. Só se o tempo medido na Tarefa 9 incomodar.
+- ~~Menos espera até o primeiro som: guardar no `/tmp` o JSON do `-J` do pedido e tocar com `--load-info-json`, sem resolver a faixa de novo.~~ Feito em 14/10/2026, no disco em vez do `/tmp`: ver "Cache e pausa de proteção".
 
 ## Medições
 
@@ -638,7 +652,7 @@ Preencher nas Tarefas 1, 7 e 9.
 | Pico do pior caso no teste, faixa + resolução (3b: `memory.peak`, `pids.peak`) | `.zip`: 388,8 MiB e 21 PIDs no procedimento do plano; 350,4 MiB numa repetição em container novo. Zipimport: 346,3 MiB e 21 PIDs; 323,7 MiB na repetição com o download conferido. Uma resolução sozinha: 262–304 MiB. Quase tudo é memória anônima: o Node que o yt-dlp abre para os desafios chega a 169 MiB (`RssAnon`), cada yt-dlp a 78 MiB (`.zip`) ou 64 MiB (zipimport), o ffmpeg a 13 MiB |
 | Limites do compose (pico + bot em repouso + buffer, com folga) | `mem_limit: 640m` e `pids_limit: 200`. Memória: (388,8 + 84 + 40) × 1,25 = 641 MiB, que não cabe nos 512 MiB do plano (sem folga, 512,8 MiB; zipimport, 588 MiB); o dono decidiu subir para 640m em 14/10/2026. PIDs: (21 + 18) × 1,25 ≈ 49, que cabe nos 200 do plano |
 | Pico no SDJ depois da checklist (item 13) | |
-| Tempo até o primeiro som | Teste, sem Discord: o download leva 4,55–4,90 s até os primeiros 8 KiB de Ogg; somado ao `-J` do pedido, dá uns 8–9,5 s |
+| Tempo até o primeiro som | Teste, sem Discord: o download leva 4,55–4,90 s até os primeiros 8 KiB de Ogg; somado ao `-J` do pedido, dá uns 8–9,5 s. Com `--load-info-json` (14/10/2026): 0,95 s até o primeiro áudio, uns 5,7 s com o pedido; do cache, o pedido não chama o YouTube |
 
 Vídeos do teste: `VIDEO` = `dQw4w9WgXcQ` (3:33); `LONGO` = `I03Hs6dwj7E`, 1767 s (29:27) pelo próprio yt-dlp, formato 251 (Opus, 142,9 kb/s, 30,1 MiB). O 3c trouxe a faixa inteira: `ffprobe` com `Duration: 00:29:27.32`, em 25,95 s (`.zip`) e 26,7 s (zipimport).
 

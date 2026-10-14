@@ -12,7 +12,7 @@ Bot do servidor **SDJ** no Discord: ranking de atividade, economia de moedas, sa
 | Daily | 100 moedas, automático na primeira atividade do dia (mensagem, entrada em call ou minuto de voz). O dia vira à meia-noite de Brasília. |
 | Moedas | Por enquanto só aparecem no perfil. Todo lançamento fica no livro-caixa (`CoinTransaction`). |
 | Ranking | Geral (XP total) e semanal (desde segunda, 0h de Brasília). Só membros atuais, sem bots e com pontos. |
-| Música | `/musica` toca áudio do YouTube, por link de vídeo ou busca, para quem tem algum cargo além do @everyone; administradores e donos do aplicativo sempre podem. Faixas de até 30 minutos e até 50 na fila, sem playlists nem transmissões ao vivo. O bot sai depois de 5 minutos sem nada na fila ou de 2 minutos sozinho no canal. A fila fica em memória e some quando o bot reinicia. Cada faixa ganha um player com botões no canal de texto do pedido. |
+| Música | `/musica` toca áudio do YouTube, por link de vídeo ou busca, para quem tem algum cargo além do @everyone; administradores e donos do aplicativo sempre podem. Faixas de até 30 minutos e até 50 na fila, sem playlists nem transmissões ao vivo. O bot sai depois de 5 minutos sem nada na fila ou de 2 minutos sozinho no canal. A fila fica em memória e some quando o bot reinicia. Cada faixa ganha um player com botões no canal de texto do pedido. Músicas já tocadas ficam guardadas por 7 dias e tocam de novo sem passar pelo YouTube. |
 | Salas | Entrar num hub cria uma sala com o nome do modelo (padrão `Quarto de {user}`). Uma sala por pessoa, 30 s entre criações, apagada quando fica sem ninguém. Só canais criados pelo bot são apagados. |
 | Dados | Os dados dos membros são guardados sem prazo; quem sai fica marcado como fora do servidor. |
 
@@ -85,15 +85,28 @@ docker compose up -d   # o severino-migrate devolve os privilégios do severino_
 
 ### Música
 
-O yt-dlp (versão fixada no `Dockerfile`, conferida pelo SHA-256 da release) e o ffmpeg do Alpine rodam dentro do container do bot. Cada pedido passa por um `yt-dlp -J`, uma resolução por vez e até 5 na espera; na hora de tocar, o yt-dlp baixa a faixa para um buffer de uns 40 MiB e o ffmpeg a converte em Ogg/Opus. Só links de vídeo do YouTube chegam ao yt-dlp, remontados a partir do ID; o resto vira busca (`ytsearch1:`). Sem cookies e sem conta Google.
+O yt-dlp (versão fixada no `Dockerfile`, conferida pelo SHA-256 da release) e o ffmpeg do Alpine rodam dentro do container do bot. Cada pedido novo passa por um `yt-dlp -J`, uma resolução por vez e até 5 na espera; na hora de tocar, o yt-dlp baixa a faixa a partir desse JSON (`--load-info-json`, sem extrair de novo) para um buffer de uns 40 MiB, e o ffmpeg a converte em Ogg/Opus. Só links de vídeo do YouTube chegam ao yt-dlp, remontados a partir do ID; o resto vira busca (`ytsearch1:`). Sem cookies e sem conta Google.
 
 O container tem `mem_limit: 640m`: em 14/10/2026, uma faixa baixando e uma resolução ao mesmo tempo chegaram a 389 MiB, e quem mais pesa é o Node que o yt-dlp abre para os desafios do YouTube (uns 170 MiB por extração). Falhas aparecem no log como `[música] falha (<tipo>) …` e em `severino_music_failures_total` e `severino_music_bot_checks_total`.
+
+**Cache** (`services/severino-bot/cache`, montado em `/cache`, do uid 1000):
+
+| O que | Prazo |
+| --- | --- |
+| Áudio como veio do YouTube (`audio/<id>`): a faixa que já tocou toca de novo sem yt-dlp e sem YouTube | 7 dias desde o último uso, até 10 GB; acima disso saem as tocadas há mais tempo |
+| Busca → vídeo (`search/`) e dados da faixa (`meta/`): o pedido repetido não chama o YouTube | 7 dias desde o último uso |
+| JSON completo do pedido (`info/<id>.json`), que a hora de tocar reaproveita | 1 hora, porque os links de áudio do YouTube expiram |
+| Scripts do player do YouTube que o próprio yt-dlp guarda (`yt-dlp/`) | o yt-dlp decide |
+
+A limpeza roda no boot e de hora em hora. Apagar o diretório (`rm -rf services/severino-bot/cache/*`) é seguro a qualquer hora: tudo é refeito no próximo pedido. Os acertos aparecem em `severino_music_cache_hits_total`. Em 14/10/2026, tocar logo depois do pedido levou 0,95 s até o primeiro áudio (eram uns 4,7 s com a segunda extração).
+
+**Pausa de proteção:** um "confirme que não é robô" põe o YouTube em pausa por 1 hora (`severino_music_youtube_blocked` = 1). Durante a pausa, só toca o que já está no cache: pedidos novos são recusados com a hora da volta, e as faixas da fila que não estão no cache saem com um aviso. A pausa fica em memória e some se o bot reiniciar.
 
 - **O YouTube mudou algo e as faixas falham** (alerta `SeverinoMusicaFalhando`, log `[música] falha (failure)`):
   1. Pegue a release nova do yt-dlp e o hash dela: `curl -sL https://github.com/yt-dlp/yt-dlp/releases/download/<versão>/SHA2-256SUMS | grep musllinux.zip`.
   2. Atualize `YTDLP_VERSION` e `YTDLP_SHA256` no `Dockerfile`.
   3. Rode `docker compose up -d --build`. O `update.sh` também reconstrói, mas com a versão fixada no `Dockerfile`, então só a troca do passo 2 atualiza o yt-dlp.
-- **O YouTube pediu "confirme que não é robô"** (alerta `SeverinoMusicaBloqueada`, log `[música] falha (bot-check)`): o IP de casa foi marcado. Deixe a música parada por algumas horas; testes em massa (umas 60 extrações em uma hora) já bastaram para isso. Se voltar sempre, há duas saídas, ainda não implementadas:
+- **O YouTube pediu "confirme que não é robô"** (alerta `SeverinoMusicaBloqueada`, log `[música] falha (bot-check)`): o IP de casa foi marcado. O bot já para de chamar o YouTube por 1 hora (pausa de proteção); se voltar logo depois, deixe a música parada por algumas horas. Testes em massa (umas 60 extrações em uma hora) já bastaram para isso, e, antes do cache, a segunda extração do mesmo vídeo, na hora de tocar, era a que levava o bloqueio. Se voltar sempre, há duas saídas, ainda não implementadas:
   - um provedor de PO token (`bgutil-ytdlp-pot-provider`);
   - cookies de uma conta Google descartável, nunca a pessoal.
 - **ffmpeg:** vem do Alpine, numa camada que fica em cache; rebuilds comuns, inclusive os do `update.sh`, não o atualizam. Para atualizar ffmpeg, Node e openssl de uma vez: `docker compose build --pull severino-bot && docker compose up -d`.
@@ -107,7 +120,7 @@ npm test                     # só os testes puros
 TEST_DATABASE_URL=postgresql://... npm test   # inclui os testes de banco
 ```
 
-Os testes de banco precisam de um Postgres descartável com as migrações aplicadas (`DATABASE_URL=... npx prisma migrate deploy`). A música fora do Docker precisa de `yt-dlp` e `ffmpeg` no PATH, ou do `YTDLP_PATH` do `.env.example` apontando para um yt-dlp. O CI no GitHub Actions faz isso a cada push e também confere se as migrações batem com o schema e se há vulnerabilidades conhecidas.
+Os testes de banco precisam de um Postgres descartável com as migrações aplicadas (`DATABASE_URL=... npx prisma migrate deploy`). A música fora do Docker precisa de `yt-dlp` e `ffmpeg` no PATH, ou do `YTDLP_PATH` do `.env.example` apontando para um yt-dlp; o cache só liga com `MUSIC_CACHE_DIR`. O CI no GitHub Actions faz isso a cada push e também confere se as migrações batem com o schema e se há vulnerabilidades conhecidas.
 
 ### Mudando o banco
 
