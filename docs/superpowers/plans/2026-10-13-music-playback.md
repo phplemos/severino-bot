@@ -593,6 +593,18 @@ docker inspect severino-bot --format '{{.State.Health.Status}}'
 
 ---
 
+## Player com botões (pedido em 14/10/2026)
+
+Depois que a primeira faixa tocou no SDJ, o dono pediu uma mensagem tipo player para controlar a música. Feito na branch `feat/musica-player`, num worktree à parte, para não mexer na versão em validação.
+
+- **Cartão por faixa:** capa (`i.ytimg.com`, pelo ID validado), título com link, canal do YouTube, duração, quem pediu, canal de voz, a próxima faixa e o tamanho da fila. Cada faixa nova apaga o cartão anterior e publica outro, para ele ficar no fim do canal. Entrar alguém na fila, pausar ou o bot mudar de canal editam o cartão; as operações nele passam por uma fila própria, para não se atropelarem.
+- **Botões:** ⏸️ Pausar / ▶️ Continuar, ⏭️ Pular, ⏹️ Parar e 📜 Fila (efêmera), com as regras dos comandos: a fila é livre; o resto pede cargo e estar no canal do bot. Botão de um cartão antigo é recusado, e o de uma sessão que já acabou tem os botões retirados. Pular pelo botão avisa no canal quem pulou.
+- **Fila vazia:** o cartão vira "Fila vazia", só com o Parar.
+- **Saída:** o cartão vira o aviso ("Saí do canal: fiquei sozinho", "Música parada por X"), sem botões, no lugar dos avisos de texto; sem cartão, o aviso vai como texto.
+- **`/musica tocar`:** quando a faixa começa na hora e o cartão foi publicado, a resposta "Tocando agora" é apagada, porque o cartão já diz o que toca e quem pediu; sem cartão (sem permissão no canal, por exemplo), a resposta fica. O `/musica parar` passa a confirmar só para quem pediu, porque o cartão mostra quem parou.
+- **Erros de botão:** um listener responde à pessoa e conta em `commandErrors`, como no `chatInputCommandError`.
+- **Testado:** 6 testes dos cartões e dos botões, e uma bancada com a sessão real, o `AudioPlayer` real, a conexão e o canal de texto falsos e o yt-dlp falso (publicar, editar, pausar, trocar de faixa, fila vazia, saída e falta de permissão).
+
 ## Manutenção
 
 Esta seção também vai para o README do bot (Tarefa 8), que é para onde os alertas apontam.
@@ -612,7 +624,7 @@ Esta seção também vai para o README do bot (Tarefa 8), que é para onde os al
 - Faixas acima de 30 minutos: o buffer deixa de caber a faixa inteira, e o yt-dlp volta a ler no ritmo da música depois que ele enche. Antes de subir o limite, tocar em tempo real uma faixa de mais de 1 hora e ver se ela chega ao fim.
 - Volume ou normalização, com filtro do ffmpeg (`volume`, `loudnorm`) aplicado a partir da faixa seguinte.
 - Repetir e embaralhar.
-- Botões na mensagem "Tocando agora".
+- ~~Botões na mensagem "Tocando agora".~~ Feito em 14/10/2026: ver "Player com botões".
 - Menos espera até o primeiro som: guardar no `/tmp` o JSON do `-J` do pedido e tocar com `--load-info-json`, sem resolver a faixa de novo. Só se o tempo medido na Tarefa 9 incomodar.
 
 ## Medições
