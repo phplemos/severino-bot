@@ -1,5 +1,5 @@
 import { container } from '@sapphire/framework';
-import { PermissionFlagsBits, Team, type ChatInputCommandInteraction } from 'discord.js';
+import { PermissionFlagsBits, Team, type ButtonInteraction, type ChatInputCommandInteraction, type Interaction } from 'discord.js';
 
 let ownerIds: Set<string> | null = null;
 
@@ -13,7 +13,7 @@ async function getOwnerIds(): Promise<Set<string>> {
 }
 
 /** Administradores do servidor e os donos do bot podem usar os comandos de administração. */
-export async function isBotAdmin(interaction: ChatInputCommandInteraction): Promise<boolean> {
+export async function isBotAdmin(interaction: Interaction): Promise<boolean> {
 	if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
 	return (await getOwnerIds()).has(interaction.user.id);
 }
@@ -25,6 +25,6 @@ export function hasAnyRole(roleIds: Iterable<string>, guildId: string): boolean 
 }
 
 /** A música é para quem tem algum cargo no servidor; administradores e donos do bot sempre podem. */
-export async function canUseMusic(interaction: ChatInputCommandInteraction<'cached'>): Promise<boolean> {
+export async function canUseMusic(interaction: ChatInputCommandInteraction<'cached'> | ButtonInteraction<'cached'>): Promise<boolean> {
 	return hasAnyRole(interaction.member.roles.cache.keys(), interaction.guildId) || isBotAdmin(interaction);
 }

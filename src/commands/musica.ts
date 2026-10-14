@@ -1,10 +1,10 @@
 import { Command } from '@sapphire/framework';
-import { ChannelType, EmbedBuilder, MessageFlags, PermissionFlagsBits, escapeMarkdown } from 'discord.js';
-import { formatTrackTime } from '../lib/format.js';
+import { ChannelType, MessageFlags, PermissionFlagsBits, escapeMarkdown } from 'discord.js';
+import { describeTrack, renderQueue } from '../lib/music/player.js';
 import { recordFailure, resolveTrack } from '../lib/music/process.js';
 import { parseQuery } from '../lib/music/query.js';
 import { MAX_QUEUE } from '../lib/music/queue.js';
-import { describeTrack, getSession, startSession, withSessionLock } from '../lib/music/session.js';
+import { getSession, startSession, withSessionLock } from '../lib/music/session.js';
 import { failureMessage } from '../lib/music/ytdlp.js';
 import { canUseMusic } from '../lib/permissions.js';
 
@@ -13,7 +13,6 @@ type GuildInteraction = Command.ChatInputCommandInteraction<'cached'>;
 
 // As respostas repetem texto digitado e títulos de vídeo, que podem trazer @everyone ou <@&cargo>
 const NO_MENTIONS = { parse: [] };
-const QUEUE_PREVIEW = 10;
 
 export class MusicaCommand extends Command {
 	public constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -121,7 +120,7 @@ export class MusicaCommand extends Command {
 			let session = getSession(interaction.guildId);
 			if (session && session.voiceChannelId !== channel.id) {
 				if (session.current) return answer(`🎶 Já estou tocando em <#${session.voiceChannelId}>. Entre lá para pedir música.`);
-				session.destroy('mudou de canal');
+				session.destroy('mudou de canal', `⏹️ Fui tocar em <#${channel.id}>.`);
 				session = undefined;
 			}
 			if (!session) {
@@ -135,7 +134,11 @@ export class MusicaCommand extends Command {
 
 			const position = session.enqueue(track);
 			if (position === null) return answer(`A fila está cheia (${MAX_QUEUE} músicas).`);
-			if (position === 0) return answer(`▶️ Tocando agora: ${describeTrack(track)}`);
+			if (position === 0) {
+				// O player da faixa já diz o que está tocando e quem pediu; sem ele, a resposta diz
+				if (await session.cardPosted) return interaction.deleteReply().catch(() => undefined);
+				return answer(`▶️ Tocando agora: ${describeTrack(track)}`);
+			}
 			return answer(`➕ Na fila (posição ${position}): ${describeTrack(track)}`);
 		});
 	}
@@ -158,27 +161,14 @@ export class MusicaCommand extends Command {
 		if (interaction.member.voice.channelId !== session.voiceChannelId) {
 			return this.refuse(interaction, `Entre em <#${session.voiceChannelId}> para controlar a música.`);
 		}
-		session.destroy(`parado por ${interaction.user.username}`);
-		return interaction.reply({ content: '⏹️ Parei e saí do canal.', allowedMentions: NO_MENTIONS });
+		// O player vira o aviso de quem parou; a confirmação fica só para quem pediu
+		session.destroy(`parado por ${interaction.user.username}`, `⏹️ Música parada por ${escapeMarkdown(interaction.member.displayName)}.`);
+		return interaction.reply({ content: '⏹️ Parei e saí do canal.', flags: MessageFlags.Ephemeral, allowedMentions: NO_MENTIONS });
 	}
 
 	private showQueue(interaction: Interaction) {
-		const session = interaction.guildId ? getSession(interaction.guildId) : undefined;
-		const current = session?.current;
-		if (!session || !current) return this.refuse(interaction, 'Nada tocando.');
-
-		const next = session.queue.list(QUEUE_PREVIEW);
-		const lines = next.map((track, index) => `**${index + 1}.** ${describeTrack(track)} · <@${track.requestedBy}>`);
-		if (session.queue.size > next.length) lines.push(`… e mais ${session.queue.size - next.length}`);
-		const totalSeconds = (current.durationSeconds ?? 0) + session.queue.totalSeconds();
-
-		const embed = new EmbedBuilder()
-			.setTitle('🎶 Fila de música')
-			.setColor(0x5865f2)
-			.setDescription(
-				[`▶️ **Tocando agora:** ${describeTrack(current)} · <@${current.requestedBy}>`, '', lines.length > 0 ? lines.join('\n') : 'Nada na fila depois desta.'].join('\n')
-			)
-			.setFooter({ text: `${session.queue.size + 1} música(s) · ${formatTrackTime(totalSeconds)} no total` });
-		return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: NO_MENTIONS });
+		const view = interaction.guildId ? getSession(interaction.guildId)?.view() : undefined;
+		if (!view?.track) return this.refuse(interaction, 'Nada tocando.');
+		return interaction.reply({ embeds: [renderQueue({ ...view, track: view.track })], flags: MessageFlags.Ephemeral, allowedMentions: NO_MENTIONS });
 	}
 }

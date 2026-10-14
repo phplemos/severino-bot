@@ -11,9 +11,9 @@ import {
 	type AudioPlayer,
 	type VoiceConnection
 } from '@discordjs/voice';
-import { escapeMarkdown, type Guild, type GuildTextBasedChannel, type VoiceChannel, type VoiceState } from 'discord.js';
-import { formatTrackTime } from '../format.js';
+import { escapeMarkdown, type Guild, type GuildTextBasedChannel, type Message, type VoiceChannel, type VoiceState } from 'discord.js';
 import { metrics } from '../metrics.js';
+import { renderEnded, renderPlayer, type PlayerView } from './player.js';
 import { openAudio, recordFailure, type AudioHandle } from './process.js';
 import { TrackQueue, type Track } from './queue.js';
 import { failureMessage } from './ytdlp.js';
@@ -22,14 +22,11 @@ export const IDLE_LEAVE_MS = 5 * 60_000;
 export const ALONE_LEAVE_MS = 2 * 60_000;
 const READY_TIMEOUT_MS = 20_000;
 const RECONNECT_TIMEOUT_MS = 5_000;
+// Os avisos repetem títulos de vídeo e apelidos, que podem trazer @everyone ou <@&cargo>
+const NO_MENTIONS = { parse: [] };
 
 const sessions = new Map<string, MusicSession>();
 const locks = new Map<string, Promise<unknown>>();
-
-/** "**título** · 3:45", com a formatação do Discord escapada no título. */
-export function describeTrack(track: Track): string {
-	return `**${escapeMarkdown(track.title)}** · ${formatTrackTime(track.durationSeconds)}`;
-}
 
 export function getSession(guildId: string): MusicSession | undefined {
 	return sessions.get(guildId);
@@ -73,7 +70,7 @@ export async function startSession(channel: VoiceChannel, textChannel: GuildText
 
 /** Usado no desligamento: encerra as sessões e mata os processos de áudio. */
 export function destroyAllSessions(): void {
-	for (const session of [...sessions.values()]) session.destroy('bot desligando');
+	for (const session of [...sessions.values()]) session.destroy('bot desligando', '🔄 O bot está reiniciando; a fila se perdeu.');
 }
 
 /** Chamado pelo listener de voz; nunca lança. */
@@ -88,6 +85,8 @@ export function onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): 
 export class MusicSession {
 	public readonly guildId: string;
 	public readonly queue = new TrackQueue();
+	/** Resolve com true quando o player da faixa que acabou de começar foi publicado. */
+	public cardPosted: Promise<boolean> = Promise.resolve(false);
 	private readonly guild: Guild;
 	private readonly textChannel: GuildTextBasedChannel;
 	private readonly connection: VoiceConnection;
@@ -98,6 +97,9 @@ export class MusicSession {
 	private idleTimer: NodeJS.Timeout | null = null;
 	private aloneTimer: NodeJS.Timeout | null = null;
 	private destroyed = false;
+	// A mensagem do player, e uma fila de operações nela para que publicar, editar e apagar não se atropelem
+	private card: Message | null = null;
+	private cardWork: Promise<unknown> = Promise.resolve();
 
 	public constructor(channel: VoiceChannel, textChannel: GuildTextBasedChannel, connection: VoiceConnection) {
 		this.guildId = channel.guild.id;
@@ -116,10 +118,10 @@ export class MusicSession {
 					entersState(connection, VoiceConnectionStatus.Connecting, RECONNECT_TIMEOUT_MS)
 				]);
 			} catch {
-				this.destroy('desconectado do canal de voz');
+				this.destroy('desconectado do canal de voz', '⚠️ Perdi a conexão com o canal de voz.');
 			}
 		});
-		connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão encerrada'));
+		connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão encerrada', '⚠️ A conexão com o canal de voz foi encerrada.'));
 
 		this.player.on(AudioPlayerStatus.Idle, () => void this.onTrackEnd());
 		// O Idle vem em seguida e cuida do resto
@@ -134,6 +136,27 @@ export class MusicSession {
 		return this.playing;
 	}
 
+	public get paused(): boolean {
+		return this.player.state.status === AudioPlayerStatus.Paused;
+	}
+
+	/** O estado que o player e a fila mostram. */
+	public view(): PlayerView {
+		return {
+			track: this.playing,
+			paused: this.paused,
+			voiceChannelId: this.channelId,
+			queue: this.queue.list(),
+			queueSize: this.queue.size,
+			queueSeconds: this.queue.totalSeconds()
+		};
+	}
+
+	/** Se a mensagem é o player atual; botões de players antigos não valem. */
+	public ownsCard(messageId: string): boolean {
+		return this.card?.id === messageId;
+	}
+
 	/** 0 = começou a tocar agora; n = posição na fila; null = fila cheia. */
 	public enqueue(track: Track): number | null {
 		// Numa sessão encerrada, a faixa abriria processos que ninguém mataria
@@ -141,10 +164,12 @@ export class MusicSession {
 		this.clearIdleTimer();
 		if (this.playing === null && this.queue.size === 0) {
 			this.queue.push(track);
-			this.playNext({ announce: false });
+			this.playNext();
 			return 0;
 		}
-		return this.queue.push(track);
+		const position = this.queue.push(track);
+		if (position !== null) this.refreshCard();
+		return position;
 	}
 
 	/** Pula a faixa atual; a próxima da fila começa no Idle. */
@@ -154,7 +179,20 @@ export class MusicSession {
 		return track;
 	}
 
-	public destroy(reason: string): void {
+	public pause(): boolean {
+		if (!this.player.pause(true)) return false;
+		this.refreshCard();
+		return true;
+	}
+
+	public resume(): boolean {
+		if (!this.player.unpause()) return false;
+		this.refreshCard();
+		return true;
+	}
+
+	/** Encerra a sessão; o player vira o aviso, ou o aviso vai como texto se não houver player. */
+	public destroy(reason: string, notice = '⏹️ Saí do canal.'): void {
 		if (this.destroyed) return;
 		this.destroyed = true;
 		this.clearIdleTimer();
@@ -168,13 +206,15 @@ export class MusicSession {
 		if (sessions.get(this.guildId) === this) sessions.delete(this.guildId);
 		metrics.musicConnected = 0;
 		container.logger.info(`[música] sessão encerrada: ${reason}`);
+		this.endCard(notice);
 	}
 
 	public handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): void {
 		if (newState.id === newState.client.user.id) {
-			if (newState.channelId === null) return this.destroy('tirado do canal');
+			if (newState.channelId === null) return this.destroy('tirado do canal', '👋 Fui tirado do canal de voz.');
 			// Movido de canal pelo Discord: segue tocando no canal novo
 			this.channelId = newState.channelId;
+			this.refreshCard();
 			return this.checkAlone();
 		}
 		if (oldState.channelId === this.channelId || newState.channelId === this.channelId) this.checkAlone();
@@ -191,28 +231,30 @@ export class MusicSession {
 		}).size;
 
 		if (humans > 0) return this.clearAloneTimer();
-		this.aloneTimer ??= setTimeout(() => {
-			this.notify('👋 Saí do canal: fiquei sozinho.');
-			this.destroy('sozinho no canal');
-		}, ALONE_LEAVE_MS);
+		this.aloneTimer ??= setTimeout(() => this.destroy('sozinho no canal', '👋 Saí do canal: fiquei sozinho.'), ALONE_LEAVE_MS);
+	}
+
+	/** Aviso no canal de texto, sem menções. */
+	public notify(content: string): void {
+		this.textChannel
+			.send({ content, allowedMentions: NO_MENTIONS })
+			.catch((error: unknown) => container.logger.warn('[música] Não consegui avisar no canal de texto:', error));
 	}
 
 	/** Tira a próxima faixa da fila e começa a tocar; sem faixa, começa a contar a ociosidade. */
-	private playNext({ announce }: { announce: boolean }): void {
+	private playNext(): void {
 		const track = this.queue.shift() ?? null;
 		this.playing = track;
 		if (!track) {
-			this.idleTimer ??= setTimeout(() => {
-				this.notify('👋 Saí do canal: nada tocou nos últimos 5 minutos.');
-				this.destroy('fila vazia por 5 minutos');
-			}, IDLE_LEAVE_MS);
+			this.idleTimer ??= setTimeout(() => this.destroy('fila vazia por 5 minutos', '👋 Saí do canal: nada tocou nos últimos 5 minutos.'), IDLE_LEAVE_MS);
+			this.refreshCard();
 			return;
 		}
 
 		this.handle = openAudio(track.url);
 		this.player.play(createAudioResource(this.handle.stream, { inputType: StreamType.OggOpus, metadata: track }));
 		metrics.musicTracksStarted++;
-		if (announce) this.notify(`▶️ Tocando agora: ${describeTrack(track)}`);
+		this.cardPosted = this.postCard();
 	}
 
 	/** A faixa acabou, foi pulada ou falhou: encerra os processos, avisa se houve falha e segue a fila. */
@@ -229,13 +271,45 @@ export class MusicSession {
 				this.notify(`⚠️ Não consegui tocar **${escapeMarkdown(track.title)}**: ${failureMessage(failure)}`);
 			}
 		}
-		if (!this.destroyed) this.playNext({ announce: true });
+		if (!this.destroyed) this.playNext();
 	}
 
-	private notify(content: string): void {
-		this.textChannel
-			.send({ content, allowedMentions: { parse: [] } })
-			.catch((error: unknown) => container.logger.warn('[música] Não consegui avisar no canal de texto:', error));
+	/** Enfileira uma operação na mensagem do player; uma falha (sem permissão, mensagem apagada) só vai para o log. */
+	private cardTask<T>(task: () => Promise<T>, fallback: T): Promise<T> {
+		const result = this.cardWork.then(task).catch((error: unknown) => {
+			container.logger.warn('[música] Falha na mensagem do player:', error);
+			return fallback;
+		});
+		this.cardWork = result;
+		return result;
+	}
+
+	/** Faixa nova: apaga o player anterior e publica outro, para ele ficar no fim do canal. */
+	private postCard(): Promise<boolean> {
+		return this.cardTask(async () => {
+			const previous = this.card;
+			this.card = null;
+			await previous?.delete().catch(() => undefined);
+			if (this.destroyed) return false;
+			this.card = await this.textChannel.send({ ...renderPlayer(this.view()), allowedMentions: NO_MENTIONS });
+			return true;
+		}, false);
+	}
+
+	/** A fila mudou, a música pausou ou o bot mudou de canal: edita o player sem trocar de mensagem. */
+	private refreshCard(): void {
+		void this.cardTask(async () => {
+			if (this.card && !this.destroyed) await this.card.edit({ ...renderPlayer(this.view()), allowedMentions: NO_MENTIONS });
+		}, undefined);
+	}
+
+	private endCard(notice: string): void {
+		void this.cardTask(async () => {
+			const card = this.card;
+			this.card = null;
+			if (card) await card.edit({ ...renderEnded(notice), allowedMentions: NO_MENTIONS });
+			else await this.textChannel.send({ content: notice, allowedMentions: NO_MENTIONS });
+		}, undefined);
 	}
 
 	private clearIdleTimer(): void {
