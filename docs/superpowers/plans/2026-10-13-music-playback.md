@@ -619,6 +619,15 @@ No SDJ, duas faixas seguidas levaram "Sign in to confirm you're not a bot". Nas 
 - **Métricas novas:** `severino_music_cache_hits_total` e `severino_music_youtube_blocked`.
 - **Testado:** 12 testes (cache em diretório temporário, prazos, limpeza, pausa); uma bancada com o yt-dlp falso que conta as chamadas (pedido repetido e busca escrita diferente: nenhuma; tocar logo depois do pedido: só o download com `--load-info-json`; tocar de novo: nenhuma; pausa: pedido novo recusado sem chamada, pedido em cache aceito); e um pedido real, que tocou com `--load-info-json`, com o primeiro áudio em 0,95 s, contra 4,6 a 4,9 s com a segunda extração.
 
+## Entrada no canal (pedido em 14/10/2026)
+
+No SDJ, uma entrada às 12:30 não ficou pronta em 20 s (`AbortError` do `entersState`), 30 s depois de um Parar no mesmo canal; a tentativa seguinte, 8 s depois, entrou. O log só dizia que o prazo estourou. Decidido: registrar onde a conexão parou e tentar de novo uma vez. Feito na branch `feat/musica-entrada`.
+
+- **Diagnóstico:** cada tentativa guarda os estados da conexão com o tempo desde o início (`JoinTrace`, em `join.ts`); se falhar, o log diz, por exemplo, `estados: signalling (0 ms) → connecting/OpeningWs (162 ms) → …`. Só os estados, nunca o debug da lib, que traz o token do servidor de voz.
+- **Nova tentativa:** a conexão que falhou é destruída, e outra começa 2 s depois (`withRetry`, 2 tentativas). No pior caso, a resposta "⚠️ Não consegui entrar" sai em uns 42 s; o `deferReply` aguenta 15 min.
+- **Junto:** a conexão de voz não tinha ouvinte de `error`. Um erro da rede de voz depois da entrada (WebSocket, UDP ou DAVE) seria lançado pelo EventEmitter, e o bot, sem `uncaughtException`, cairia. Agora vai para o log, e a conexão se refaz ou cai em Disconnected, que a sessão já trata.
+- **Testado:** 5 testes (`test/join.test.ts`); e uma bancada com um adaptador de voz falso: na tentativa 1 o gateway não responde, e ela estoura em 20 s com `signalling (0 ms)`; na 2, 2 s depois, um servidor de voz numa porta fechada dá `ECONNREFUSED` com `signalling → connecting/OpeningWs → signalling`; as duas conexões saem do canal e são destruídas; e um `error` numa conexão pronta só vai para o log.
+
 ## Manutenção
 
 Esta seção também vai para o README do bot (Tarefa 8), que é para onde os alertas apontam.

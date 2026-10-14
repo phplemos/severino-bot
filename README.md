@@ -89,6 +89,8 @@ O yt-dlp (versão fixada no `Dockerfile`, conferida pelo SHA-256 da release) e o
 
 O container tem `mem_limit: 640m`: em 14/10/2026, uma faixa baixando e uma resolução ao mesmo tempo chegaram a 389 MiB, e quem mais pesa é o Node que o yt-dlp abre para os desafios do YouTube (uns 170 MiB por extração). Falhas aparecem no log como `[música] falha (<tipo>) …` e em `severino_music_failures_total` e `severino_music_bot_checks_total`.
 
+Para entrar no canal, a conexão de voz tem 20 s para ficar pronta; se não ficar, o bot a desfaz e tenta mais uma vez 2 s depois, então "⚠️ Não consegui entrar" pode levar uns 40 s. Cada tentativa que falha vai para o log com os estados por que a conexão passou.
+
 **Cache** (`services/severino-bot/cache`, montado em `/cache`, do uid 1000):
 
 | O que | Prazo |
@@ -109,6 +111,7 @@ A limpeza roda no boot e de hora em hora. Apagar o diretório (`rm -rf services/
 - **O YouTube pediu "confirme que não é robô"** (alerta `SeverinoMusicaBloqueada`, log `[música] falha (bot-check)`): o IP de casa foi marcado. O bot já para de chamar o YouTube por 1 hora (pausa de proteção); se voltar logo depois, deixe a música parada por algumas horas. Testes em massa (umas 60 extrações em uma hora) já bastaram para isso, e, antes do cache, a segunda extração do mesmo vídeo, na hora de tocar, era a que levava o bloqueio. Se voltar sempre, há duas saídas, ainda não implementadas:
   - um provedor de PO token (`bgutil-ytdlp-pot-provider`);
   - cookies de uma conta Google descartável, nunca a pessoal.
+- **O bot não entra no canal** (log `[música] Tentativa N de 2 de entrar em …`): o fim da linha diz onde a conexão parou. `signalling` é o Discord que não mandou o servidor de voz; `connecting/<etapa>` é o servidor de voz (`OpeningWs`, `Identifying`, `UdpHandshaking`, `SelectingProtocol`), onde também entra o DAVE; `disconnected/close <código>` traz o código de fechamento do Discord. Uma falha isolada que a segunda tentativa resolve não pede nada.
 - **ffmpeg:** vem do Alpine, numa camada que fica em cache; rebuilds comuns, inclusive os do `update.sh`, não o atualizam. Para atualizar ffmpeg, Node e openssl de uma vez: `docker compose build --pull severino-bot && docker compose up -d`.
 
 ## Desenvolvimento
