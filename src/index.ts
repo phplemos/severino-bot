@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { startHealthServer } from './lib/health.js';
 import { stopJobs } from './lib/jobs.js';
 import { metrics } from './lib/metrics.js';
+import { destroyAllSessions } from './lib/music/session.js';
 import { prisma } from './lib/prisma.js';
 
 // Os comandos são registrados só no SDJ; o BulkOverwrite também remove comandos antigos que deixaram de existir
@@ -47,6 +48,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 	clearInterval(watchdog);
 	stopJobs();
 	health.close();
+	// Sai dos canais de voz e mata os processos de áudio antes de desconectar
+	destroyAllSessions();
 	await client.destroy().catch(() => undefined);
 	await prisma.$disconnect().catch(() => undefined);
 	process.exit(0);

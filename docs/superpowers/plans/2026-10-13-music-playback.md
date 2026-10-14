@@ -496,11 +496,11 @@ connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão ence
 - No bot: `src/listeners/voiceStateUpdate.ts`, `src/index.ts`, `src/lib/metrics.ts`.
 - No homelab: `services/severino-bot/docker-compose.yml` e `services/monitoring/prometheus/rules/severino.yml`.
 
-- [ ] **`voiceStateUpdate.ts`:** chamar `onVoiceStateUpdate(oldState, newState)` logo depois da primeira guarda (servidor e mudança de canal), antes de duas coisas:
+- [x] **`voiceStateUpdate.ts`:** chamar `onVoiceStateUpdate(oldState, newState)` logo depois da primeira guarda (servidor e mudança de canal), antes de duas coisas:
   - do `return` para bots, para enxergar o próprio bot sendo movido ou expulso;
   - dos acessos ao banco, para que uma falha do banco não deixe o bot preso no canal.
-- [ ] **`index.ts`:** chamar `destroyAllSessions()` no `shutdown`, antes do `client.destroy()`.
-- [ ] **`metrics.ts`:**
+- [x] **`index.ts`:** chamar `destroyAllSessions()` no `shutdown`, antes do `client.destroy()`.
+- [x] **`metrics.ts`:**
 
 | Campo | Métrica | Tipo | Ajuda |
 |---|---|---|---|
@@ -509,7 +509,7 @@ connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão ence
 | `musicFailures` | `severino_music_failures_total` | counter | Faixas que falharam por erro do yt-dlp ou do ffmpeg; vídeo indisponível ou com restrição de idade não conta. |
 | `musicBotChecks` | `severino_music_bot_checks_total` | counter | Vezes em que o YouTube pediu para confirmar que não é robô. |
 
-- [ ] **Compose (serviço `severino-bot`):** pôr os limites calculados na Tarefa 1 (pico do 3b + bot em repouso + buffer, com folga). A expectativa é esta, com o comentário trazendo a conta:
+- [x] **Compose (serviço `severino-bot`):** pôr os limites calculados na Tarefa 1 (pico do 3b + bot em repouso + buffer, com folga). A expectativa é esta, com o comentário trazendo a conta:
 
 ```yaml
     # Node + yt-dlp + ffmpeg tocando música; em <data>: pico <X> MiB e <Y> PIDs (faixa + resolução) + bot + buffer, com folga
@@ -521,7 +521,7 @@ connection.on(VoiceConnectionStatus.Destroyed, () => this.destroy('conexão ence
 ```
 
   Validar com `docker compose config -q`. A mudança vale no próximo `up -d` do stack, mesmo antes da Tarefa 9; limites maiores não atrapalham a versão atual.
-- [ ] **Alertas,** acrescentados a `severino.yml`. Os dois apontam para o README do bot, que recebe o conteúdo da seção "Manutenção" (Tarefa 8):
+- [x] **Alertas,** acrescentados a `severino.yml`. Os dois apontam para o README do bot, que recebe o conteúdo da seção "Manutenção" (Tarefa 8):
 
 ```yaml
       - alert: SeverinoMusicaFalhando
