@@ -6,7 +6,7 @@ import { leaveIfNotAllowed } from '../lib/guilds.js';
 import { every } from '../lib/jobs.js';
 import { syncGuildMembers } from '../lib/members.js';
 import { metrics } from '../lib/metrics.js';
-import { sweepMusicCache } from '../lib/music/process.js';
+import { restoreYoutubePause, sweepMusicCache } from '../lib/music/process.js';
 import { prisma } from '../lib/prisma.js';
 import { refreshRankingMessage } from '../lib/ranking.js';
 import { reconcileRooms } from '../lib/tempRooms.js';
@@ -22,6 +22,9 @@ export class ClientReadyListener extends Listener<typeof Events.ClientReady> {
 	public async run(client: Client<true>) {
 		const { logger } = this.container;
 		logger.info(`Conectado como ${client.user.tag}.`);
+		// Antes das outras etapas: os comandos já chegam enquanto elas rodam
+		const pausedUntil = restoreYoutubePause();
+		if (pausedUntil) logger.warn(`[música] YouTube segue em pausa até ${pausedUntil.toISOString()}, como estava antes de reiniciar`);
 
 		for (const guild of client.guilds.cache.values()) await leaveIfNotAllowed(guild, config.GUILD_ID);
 

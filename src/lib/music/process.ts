@@ -4,7 +4,7 @@ import { PassThrough, type Readable } from 'node:stream';
 import { container } from '@sapphire/framework';
 import { config } from '../../config.js';
 import { metrics } from '../metrics.js';
-import { blockYoutube, youtubeBlockedUntil } from './block.js';
+import { blockYoutube, restoreYoutubeBlock, youtubeBlockedUntil } from './block.js';
 import { MusicCache, type CachedTrack } from './cache.js';
 import { Limiter } from './limiter.js';
 import type { Track } from './queue.js';
@@ -20,7 +20,8 @@ import {
 	streamArgs,
 	type Info,
 	type ResolveResult,
-	type YtDlpFailure
+	type YtDlpFailure,
+	type YtDlpOptions
 } from './ytdlp.js';
 
 const STDERR_TAIL_BYTES = 4 * 1024;
@@ -33,7 +34,12 @@ const resolutions = new Limiter(1, 5);
 /** O cache em disco, quando MUSIC_CACHE_DIR está definido (no Docker, sempre). */
 export const musicCache = config.MUSIC_CACHE_DIR ? new MusicCache(config.MUSIC_CACHE_DIR) : null;
 // Com o cache em disco, os scripts do player do YouTube também sobrevivem a reinícios: menos chamadas a ele
-const ytDlpCache = musicCache?.ytDlpDir ?? DEFAULT_YTDLP_CACHE;
+const ytDlp: YtDlpOptions = { cacheDir: musicCache?.ytDlpDir ?? DEFAULT_YTDLP_CACHE, forceIpv6: config.YTDLP_FORCE_IPV6 };
+
+/** No boot: retoma a pausa do YouTube gravada no cache, se ela ainda vale. Sem cache, a pausa fica só em memória. */
+export function restoreYoutubePause(): Date | null {
+	return musicCache ? restoreYoutubeBlock(musicCache.blockFile) : null;
+}
 
 interface Run {
 	child: ChildProcess;
@@ -118,7 +124,7 @@ async function remember(query: ResolveQuery, track: CachedTrack, info: Info): Pr
 
 async function runResolve(query: ResolveQuery): Promise<ResolveOutcome> {
 	const target = query.kind === 'video' ? query.url : `ytsearch1:${query.text}`;
-	const run = start(config.YTDLP_PATH, resolveArgs(target, ytDlpCache), 'ignore');
+	const run = start(config.YTDLP_PATH, resolveArgs(target, ytDlp), 'ignore');
 	const chunks: Buffer[] = [];
 	let size = 0;
 	let problem: string | null = null;
@@ -232,7 +238,7 @@ export function openAudio(track: Pick<Track, 'id' | 'url'>): AudioHandle {
 		});
 	} else {
 		const info = musicCache?.freshInfo(track.id) ?? null;
-		const run = start(config.YTDLP_PATH, info ? loadInfoArgs(info, ytDlpCache) : streamArgs(track.url, ytDlpCache), 'ignore');
+		const run = start(config.YTDLP_PATH, info ? loadInfoArgs(info, ytDlp) : streamArgs(track.url, ytDlp), 'ignore');
 		download = run;
 		const writer = musicCache?.audioWriter(track.id) ?? null;
 		run.child.stdout!.pipe(buffer);
@@ -244,6 +250,8 @@ export function openAudio(track: Pick<Track, 'id' | 'url'>): AudioHandle {
 			}
 			if (spawnError || code !== 0) {
 				writer?.discard();
+				// Com o mesmo JSON, a nova tentativa pediria os mesmos links recusados
+				if (info) void musicCache?.dropInfo(track.id).catch(() => undefined);
 				return { failure: spawnError ? 'failure' : classifyFailure(run.stderr()), detail: spawnError?.message ?? lastLine(run.stderr()) };
 			}
 			if (writer && !(await writer.commit().catch(() => false))) container.logger.warn(`[música] Não consegui guardar o áudio de ${track.id} no cache`);

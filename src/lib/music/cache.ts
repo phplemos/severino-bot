@@ -72,11 +72,14 @@ export interface AudioWriter {
  */
 export class MusicCache {
 	public readonly ytDlpDir: string;
+	/** A pausa do YouTube, para sobreviver a reinícios; fica fora da limpeza. */
+	public readonly blockFile: string;
 	private readonly dir: string;
 
 	public constructor(dir: string) {
 		this.dir = dir;
 		this.ytDlpDir = join(dir, 'yt-dlp');
+		this.blockFile = join(dir, 'youtube-block.json');
 	}
 
 	private path(kind: Kind, name: string): string {
@@ -139,6 +142,11 @@ export class MusicCache {
 		} catch {
 			return null;
 		}
+	}
+
+	/** Esquece o JSON do pedido: depois de um download que falhou, a próxima vez extrai de novo. */
+	public dropInfo(id: string): Promise<void> {
+		return rm(this.path('info', `${id}.json`), { force: true });
 	}
 
 	/** O áudio guardado, renovando o prazo; null se não houver. Síncrono pelo mesmo motivo do freshInfo. */

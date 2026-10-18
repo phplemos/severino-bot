@@ -15,6 +15,10 @@ const schema = z.object({
 	HEALTH_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(65_535).default(8080)),
 	// Fora do Docker valem o yt-dlp e o ffmpeg do PATH; a imagem define o caminho do seu yt-dlp
 	YTDLP_PATH: z.preprocess(emptyToUndefined, z.string().default('yt-dlp')),
+	// yt-dlp só pelo IPv6; o Docker liga, porque o Google marcou o IPv4 de casa em 17/10/2026
+	YTDLP_FORCE_IPV6: z
+		.preprocess(emptyToUndefined, z.enum(['true', 'false']).default('false'))
+		.transform((value) => value === 'true'),
 	// Cache em disco da música (áudio e pedidos); vazio desliga
 	MUSIC_CACHE_DIR: z.preprocess(emptyToUndefined, z.string().optional())
 });

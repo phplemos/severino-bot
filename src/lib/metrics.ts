@@ -39,9 +39,9 @@ const definitions: [name: string, kind: Kind, help: string, value: () => number]
 	['severino_music_connected', 'gauge', '1 quando o bot está num canal de voz para tocar música.', () => metrics.musicConnected],
 	['severino_music_tracks_started_total', 'counter', 'Faixas que começaram a tocar.', () => metrics.musicTracksStarted],
 	['severino_music_failures_total', 'counter', 'Faixas que falharam por erro do yt-dlp ou do ffmpeg; vídeo indisponível ou com restrição de idade não conta.', () => metrics.musicFailures],
-	['severino_music_bot_checks_total', 'counter', 'Vezes em que o YouTube pediu para confirmar que não é robô.', () => metrics.musicBotChecks],
+	['severino_music_bot_checks_total', 'counter', 'Vezes em que o YouTube barrou o bot: "confirme que não é robô", 403 ou 429.', () => metrics.musicBotChecks],
 	['severino_music_cache_hits_total', 'counter', 'Faixas tocadas do cache, sem baixar do YouTube.', () => metrics.musicCacheHits],
-	['severino_music_youtube_blocked', 'gauge', '1 enquanto o bot evita o YouTube depois de um pedido para confirmar que não é robô.', () => metrics.musicYoutubeBlocked],
+	['severino_music_youtube_blocked', 'gauge', '1 enquanto o bot evita o YouTube depois de ser barrado por ele.', () => metrics.musicYoutubeBlocked],
 	['process_start_time_seconds', 'gauge', 'Hora de início do processo.', () => startTimeSeconds]
 ];
 

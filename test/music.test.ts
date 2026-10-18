@@ -3,7 +3,7 @@ import { formatTrackTime } from '../src/lib/format.js';
 import { Limiter } from '../src/lib/music/limiter.js';
 import { parseQuery } from '../src/lib/music/query.js';
 import { MAX_QUEUE, TrackQueue, type Track } from '../src/lib/music/queue.js';
-import { MAX_TRACK_SECONDS, classifyFailure, failureMessage, parseResolved } from '../src/lib/music/ytdlp.js';
+import { MAX_TRACK_SECONDS, classifyFailure, failureMessage, loadInfoArgs, parseResolved, resolveArgs, streamArgs } from '../src/lib/music/ytdlp.js';
 import { hasAnyRole } from '../src/lib/permissions.js';
 
 const ID = 'dQw4w9WgXcQ';
@@ -202,10 +202,22 @@ describe('resposta do yt-dlp', () => {
 		['ERROR: [youtube] dQw4w9WgXcQ: This video is not available in your country', 'unavailable'],
 		['ERROR: [youtube] dQw4w9WgXcQ: Join this channel to get access to members-only content like this video', 'unavailable'],
 		['ERROR: [youtube] dQw4w9WgXcQ: Requested format is not available. Use --list-formats for a list of available formats', 'failure'],
-		['ERROR: unable to download video data: HTTP Error 403: Forbidden', 'failure'],
+		['ERROR: unable to download video data: HTTP Error 403: Forbidden', 'bot-check'],
+		['ERROR: [youtube] dQw4w9WgXcQ: Unable to download API page: HTTP Error 429: Too Many Requests', 'bot-check'],
+		['ERROR: unable to download video data: HTTP Error 4030: Forbidden', 'failure'],
 		['', 'failure']
 	])('classifica %j como %s', (stderr, expected) => {
 		expect(classifyFailure(stderr)).toBe(expected);
+	});
+
+	it('só força o IPv6 quando pedido', () => {
+		expect(resolveArgs(URL_DO_ID)).not.toContain('--force-ipv6');
+		expect(resolveArgs(URL_DO_ID, { forceIpv6: true })).toContain('--force-ipv6');
+		expect(streamArgs(URL_DO_ID, { forceIpv6: true })).toContain('--force-ipv6');
+		expect(loadInfoArgs('/cache/info/x.json', { forceIpv6: true })).toContain('--force-ipv6');
+		// O alvo fica sempre depois do --, onde nenhuma opção entra
+		expect(resolveArgs(URL_DO_ID, { forceIpv6: true }).slice(-2)).toEqual(['--', URL_DO_ID]);
+		expect(resolveArgs(URL_DO_ID, { cacheDir: '/cache/yt-dlp' })).toContain('/cache/yt-dlp');
 	});
 
 	it('explica cada falha em português', () => {

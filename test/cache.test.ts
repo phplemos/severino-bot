@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { metrics } from '../src/lib/metrics.js';
-import { BLOCK_MS, blockNotice, blockYoutube, resetYoutubeBlock, youtubeBlockedUntil } from '../src/lib/music/block.js';
+import { BLOCK_MS, blockNotice, blockYoutube, resetYoutubeBlock, restoreYoutubeBlock, youtubeBlockedUntil } from '../src/lib/music/block.js';
 import { CACHE_MAX_BYTES, CACHE_TTL_MS, INFO_TTL_MS, MusicCache, planSweep, searchKey, type CacheFile } from '../src/lib/music/cache.js';
 import { formatTime } from '../src/lib/time.js';
 
@@ -87,6 +87,20 @@ describe('cache em disco', () => {
 		expect(cache.freshInfo(ID)).toBeNull();
 	});
 
+	it('esquece o JSON do pedido depois de um download que falhou, e só ele', async () => {
+		await cache.setInfo(ID, { id: ID, formats: [] });
+		await cache.setTrack(track);
+		await cache.dropInfo(ID);
+		expect(cache.freshInfo(ID)).toBeNull();
+		expect(await cache.getTrack(ID)).toEqual(track);
+		// Sem nada para apagar, não falha
+		await cache.dropInfo(ID);
+	});
+
+	it('guarda a pausa do YouTube fora dos diretórios que a limpeza percorre', () => {
+		expect(cache.blockFile).toBe(join(dir, 'youtube-block.json'));
+	});
+
 	it('guarda o áudio só quando o download termina bem', async () => {
 		const discarded = cache.audioWriter(ID);
 		discarded.stream.write('metade');
@@ -136,6 +150,53 @@ describe('pausa do YouTube', () => {
 		blockYoutube(now);
 		expect(blockYoutube(now - 10 * 60_000).getTime()).toBe(now + BLOCK_MS);
 		expect(blockYoutube(now + 10 * 60_000).getTime()).toBe(now + 10 * 60_000 + BLOCK_MS);
+	});
+
+	describe('gravada em disco', () => {
+		let dir: string;
+		let file: string;
+		beforeEach(async () => {
+			dir = await mkdtemp(join(tmpdir(), 'severino-pausa-'));
+			file = join(dir, 'youtube-block.json');
+		});
+		afterEach(() => rm(dir, { recursive: true, force: true }));
+
+		it('sobrevive a um reinício', () => {
+			const now = Date.now();
+			expect(restoreYoutubeBlock(file, now)).toBeNull();
+			const until = blockYoutube(now);
+
+			// O reinício apaga a memória, não o arquivo
+			resetYoutubeBlock();
+			expect(youtubeBlockedUntil(now)).toBeNull();
+			expect(restoreYoutubeBlock(file, now + 10 * 60_000)).toEqual(until);
+			expect(youtubeBlockedUntil(now + 10 * 60_000)).toEqual(until);
+			expect(metrics.musicYoutubeBlocked).toBe(1);
+		});
+
+		it('ignora pausa vencida, arquivo estragado e prazo além de 1 hora', async () => {
+			const now = Date.now();
+			await writeFile(file, JSON.stringify({ until: now - 1 }));
+			expect(restoreYoutubeBlock(file, now)).toBeNull();
+
+			await writeFile(file, '{"until":');
+			expect(restoreYoutubeBlock(file, now)).toBeNull();
+			await writeFile(file, JSON.stringify({ until: 'amanhã' }));
+			expect(restoreYoutubeBlock(file, now)).toBeNull();
+			expect(metrics.musicYoutubeBlocked).toBe(0);
+
+			await writeFile(file, JSON.stringify({ until: now + 30 * DAY }));
+			expect(restoreYoutubeBlock(file, now)?.getTime()).toBe(now + BLOCK_MS);
+		});
+
+		it('sem onde gravar, a pausa vale em memória', async () => {
+			const now = Date.now();
+			await writeFile(file, '');
+			// O "diretório" da pausa é um arquivo: gravar falha
+			restoreYoutubeBlock(join(file, 'youtube-block.json'), now);
+			expect(blockYoutube(now).getTime()).toBe(now + BLOCK_MS);
+			expect(youtubeBlockedUntil(now)).not.toBeNull();
+		});
 	});
 
 	it('escreve a hora em Brasília', () => {

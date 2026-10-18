@@ -8,16 +8,24 @@ export const MAX_TRACK_SECONDS = 30 * 60;
 const AUDIO_FORMAT = 'bestaudio[acodec=opus]/bestaudio/best';
 // Sem cache em disco, o cache do yt-dlp (scripts do player do YouTube) fica no /tmp e some a cada reinício
 export const DEFAULT_YTDLP_CACHE = '/tmp/yt-dlp';
-const common = (cacheDir: string) => [
+
+export interface YtDlpOptions {
+	cacheDir?: string;
+	/** Só IPv6: o Google pode marcar o IPv4 de casa e deixar o IPv6 limpo. */
+	forceIpv6?: boolean;
+}
+
+const common = ({ cacheDir = DEFAULT_YTDLP_CACHE, forceIpv6 = false }: YtDlpOptions) => [
 	'--ignore-config', '--quiet', '--no-warnings', '--no-progress', '--no-playlist',
-	'--js-runtimes', 'node', '--cache-dir', cacheDir, '--socket-timeout', '15'
+	'--js-runtimes', 'node', '--cache-dir', cacheDir, '--socket-timeout', '15',
+	...(forceIpv6 ? ['--force-ipv6'] : [])
 ];
 
 /** target é a URL remontada pelo parseQuery ou `ytsearch1:<texto>`. Sem --flat-playlist: a busca também passa pela escolha de formato. */
-export const resolveArgs = (target: string, cacheDir = DEFAULT_YTDLP_CACHE) => [...common(cacheDir), '-J', '-f', AUDIO_FORMAT, '--', target];
-export const streamArgs = (url: string, cacheDir = DEFAULT_YTDLP_CACHE) => [...common(cacheDir), '-f', AUDIO_FORMAT, '-o', '-', '--', url];
+export const resolveArgs = (target: string, options: YtDlpOptions = {}) => [...common(options), '-J', '-f', AUDIO_FORMAT, '--', target];
+export const streamArgs = (url: string, options: YtDlpOptions = {}) => [...common(options), '-f', AUDIO_FORMAT, '-o', '-', '--', url];
 /** Baixa a partir do JSON que o pedido já extraiu: nenhuma chamada nova à API do YouTube, só o download do áudio. */
-export const loadInfoArgs = (infoPath: string, cacheDir = DEFAULT_YTDLP_CACHE) => [...common(cacheDir), '--load-info-json', infoPath, '-f', AUDIO_FORMAT, '-o', '-'];
+export const loadInfoArgs = (infoPath: string, options: YtDlpOptions = {}) => [...common(options), '--load-info-json', infoPath, '-f', AUDIO_FORMAT, '-o', '-'];
 export const FFMPEG_ARGS = [
 	'-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-vn',
 	'-ac', '2', '-ar', '48000', '-c:a', 'libopus', '-b:a', '128k', '-f', 'ogg', 'pipe:1'
@@ -56,10 +64,13 @@ export function parseResolved(json: unknown): ResolveResult {
 	};
 }
 
+/** bot-check é o YouTube barrando o IP; unavailable e age são do vídeo; failure é o resto. */
 export type YtDlpFailure = 'unavailable' | 'age' | 'bot-check' | 'failure';
 
 const FAILURE_PATTERNS: [YtDlpFailure, RegExp][] = [
-	['bot-check', /sign in to confirm you.re not a bot/i],
+	// O 403 no download também: o link vem de um JSON de no máximo 1 hora e só expira depois de horas.
+	// Em 17/10/2026 ele veio junto com o "não é robô", com o IPv4 de casa marcado pelo Google.
+	['bot-check', /sign in to confirm you.re not a bot|HTTP Error (?:403|429)\b/i],
 	['age', /confirm your age|age-restricted|inappropriate for some users/i],
 	// Bloqueio regional: o YouTube diz "has not made this video available in your country", e o yt-dlp, "geo restriction"
 	['unavailable', /private video|video unavailable|has been removed|not (?:made this video )?available in your country|geo restriction|members-only/i]
